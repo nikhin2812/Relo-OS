@@ -1,0 +1,65 @@
+-- Demo data from spec section 9. All names are fictional.
+-- The password is never stored here: the placeholder is filled in at run time
+-- (scripts/render-seed.mjs reads DEMO_PASSWORD from the environment).
+-- Safe to re-run: every insert skips rows that already exist.
+
+create extension if not exists pgcrypto with schema extensions;
+
+insert into public.rmc_tenants (id, name) values
+  ('10000000-0000-0000-0000-000000000001', 'Demo Mobility Partners')
+on conflict (id) do nothing;
+
+insert into public.client_companies (id, rmc_tenant_id, name) values
+  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Fictional Tech Pvt Ltd (Demo)')
+on conflict (id) do nothing;
+
+-- One login per role.
+with demo_users (id, email, full_name) as (values
+  ('30000000-0000-0000-0000-000000000001'::uuid, 'admin@demo.relo-os.test',      'Asha Admin (Demo)'),
+  ('30000000-0000-0000-0000-000000000002'::uuid, 'consultant@demo.relo-os.test', 'Carl Consultant (Demo)'),
+  ('30000000-0000-0000-0000-000000000003'::uuid, 'hr@demo.relo-os.test',         'Hema HR (Demo)'),
+  ('30000000-0000-0000-0000-000000000004'::uuid, 'employee@demo.relo-os.test',   'Eshan Employee (Demo)'),
+  ('30000000-0000-0000-0000-000000000005'::uuid, 'vendor@demo.relo-os.test',     'Vikram Vendor (Demo)')
+), ins_users as (
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change,
+    email_change_token_current, phone_change, phone_change_token, reauthentication_token
+  )
+  select '00000000-0000-0000-0000-000000000000', id, 'authenticated', 'authenticated', email,
+    extensions.crypt('{{DEMO_PASSWORD}}', extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}', jsonb_build_object('full_name', full_name),
+    now(), now(), '', '', '', '', '', '', '', ''
+  from demo_users
+  on conflict (id) do nothing
+  returning id, email
+)
+insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at)
+select gen_random_uuid(), id, id::text, 'email',
+  jsonb_build_object('sub', id::text, 'email', email, 'email_verified', true), now(), now(), now()
+from ins_users;
+
+insert into public.profiles (id, rmc_tenant_id, role, full_name, email, client_company_id) values
+  ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'rmc_admin',  'Asha Admin (Demo)',      'admin@demo.relo-os.test',      null),
+  ('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'consultant', 'Carl Consultant (Demo)', 'consultant@demo.relo-os.test', null),
+  ('30000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'hr_user',    'Hema HR (Demo)',         'hr@demo.relo-os.test',         '20000000-0000-0000-0000-000000000001'),
+  ('30000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'employee',   'Eshan Employee (Demo)',  'employee@demo.relo-os.test',   '20000000-0000-0000-0000-000000000001'),
+  ('30000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', 'vendor',     'Vikram Vendor (Demo)',   'vendor@demo.relo-os.test',     null)
+on conflict (id) do nothing;
+
+-- The demo relocation: family of three, Bengaluru to Dubai, 15 November, budget ₹15 lakh.
+insert into public.assignments (id, rmc_tenant_id, client_company_id, employee_profile_id,
+  employee_name, family_size, origin, destination, move_date, status) values
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004',
+   'Eshan Employee (Demo)', 3, 'Bengaluru, India', 'Dubai, UAE', '2026-11-15', 'requested')
+on conflict (id) do nothing;
+
+insert into public.assignment_budgets (assignment_id, rmc_tenant_id, amount, currency) values
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 1500000.00, 'INR')
+on conflict (assignment_id) do nothing;
+
+insert into public.assignment_consultants (assignment_id, consultant_id, rmc_tenant_id) values
+  ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001')
+on conflict do nothing;
