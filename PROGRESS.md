@@ -17,9 +17,9 @@
   - `supabase/tests/rls_role_access.sql` — 50 database checks across all 5 roles plus a
     second RMC and logged-out visitors. **All 50 pass** (run against the live project).
   - `tests/unit` — 11 unit tests. **All pass.**
-  - `tests/integration/role-access.test.ts` — same role checks through the real API.
+  - `tests/integration/role-access.test.ts` — same role checks through the real API. **Pass in CI.**
   - `tests/e2e` — Playwright: login, wrong password, logged-out redirect, each role's screen,
-    employee/vendor see no ₹ figures, sign out.
+    employee/vendor see no ₹ figures, sign out. **All 8 pass in CI.**
 - GitHub Actions (`.github/workflows/ci.yml`): lint, types, unit + role tests, `npm audit`,
   then Playwright.
 
@@ -27,8 +27,8 @@
 - Session 2: HR relocation request + AI plan (MVP items 1 and 2).
 
 ## Known issues / to do
-- API-level and Playwright login tests have not yet run: the cloud workspace's network
-  blocks Supabase. They run in GitHub Actions once the repo secrets are set.
+- The cloud workspace's network blocks Supabase, so login tests only run in GitHub
+  Actions (repo secrets are set). CI is green as of commit after 0951f55.
 - Supabase Security Advisor: "Leaked password protection disabled" (warning). Turn on in
   Supabase → Authentication → Settings before launch (may need a paid plan).
 - Turn off public sign-ups in Supabase → Authentication → Sign In / Providers
