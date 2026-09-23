@@ -27,6 +27,9 @@ Vercel share one secret:
 | `RESEND_API_KEY` | your Resend key | For emailing providers |
 | `EMAIL_FROM` | e.g. `Relo OS <workorders@yourdomain.com>` (a domain verified in Resend) | With Resend |
 
+Choose **Type: Config** for the three `NEXT_PUBLIC_…` settings (they are public by design;
+Vercel hides "Secret" values from them, which breaks the build). Use **Secret** for the others.
+
 Do **not** add `PLANNER_MODE`, `DEMO_PASSWORD` or any Supabase secret/service-role key — the app doesn't need them.
 Click **Deploy**. You'll get a `…vercel.app` address in a minute or two.
 

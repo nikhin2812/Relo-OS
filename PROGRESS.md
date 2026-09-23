@@ -184,7 +184,11 @@
   generation through the signed save).
 
 ## Next
-- Owner: deploy on Vercel with DEPLOY.md (now includes the signing secret step), send the URL.
+- Deployed: https://relo-os-omega.vercel.app (Vercel, 23 Sep). All five demo logins checked
+  on the live site in an iPad-sized browser. Fixed on the way: the `NEXT_PUBLIC_…` settings had
+  been saved as Vercel "Secret" (hidden from the build) — they must be "Config"; the build now
+  stops with a clear message if they are missing.
+- Owner: set Supabase Site URL to the live address; add Anthropic/Resend keys when ready.
 - Later: remove the old test-only RMC and its three test logins from the demo database.
 
 ## Known issues / to do
