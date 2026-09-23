@@ -80,6 +80,9 @@
 - Tests: 185 database checks (all pass), 78 unit tests (all pass), API tests for the journey
   and file access, Playwright journey/document flow and a strict "employee never sees money"
   test (visible text and page data) for both the test employee and the demo employee.
+- CI green (26 browser tests, no retries). Fixed on the way: a brief clock difference between
+  Supabase's login and database servers ("JWT issued at future") made one API test flaky, and
+  the request-and-plan step now has 15 s in browser tests.
 
 ## Next
 - Session 5: work orders, provider portal, HR progress and committed budget (MVP items 8 and 9).
