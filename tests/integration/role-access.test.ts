@@ -49,6 +49,13 @@ async function signIn(email: string): Promise<SupabaseClient> {
   const client = createClient(url!, anonKey!, { auth: { persistSession: false } });
   const { error } = await client.auth.signInWithPassword({ email, password: demoPassword() });
   if (error) throw new Error(`${email} could not sign in: ${error.message}`);
+  // Supabase's auth and database servers can disagree by a moment, so a brand-new
+  // login token is briefly "issued in the future". Wait until the database accepts it.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const probe = await client.from("profiles").select("id").limit(1);
+    if (!probe.error?.message.includes("issued at future")) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
   return client;
 }
 
