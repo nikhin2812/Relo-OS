@@ -60,7 +60,8 @@
   Palm Stay Apartments) with rates; demo vendor login = Skyline. The demo relocation has the
   fixed sample plan (labelled "Sample plan") so providers can be picked before the AI key is in.
 - Tests: 139 database checks (all pass), 61 unit tests (all pass), API role tests for vendors
-  and rate cards, Playwright provider-picking flow in the test-only RMC.
+  and rate cards, Playwright provider-picking flow in the test-only RMC. CI green (18 browser
+  tests). Fixed on the way: form ID check rejected the demo's fixed IDs.
 
 ## Next
 - Session 4: the employee journey and documents (MVP items 6 and 7).
