@@ -257,3 +257,54 @@ insert into public.profiles (id, rmc_tenant_id, role, full_name, email, client_c
   ('3e000000-0000-0000-0000-000000000004', '1e000000-0000-0000-0000-000000000001', 'employee',
    'Test Employee (Automated)', 'e2e-employee@test.relo-os.test', '2e000000-0000-0000-0000-000000000001')
 on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------- Session 6
+
+-- Invoices up to 2% over the agreed price are accepted without a flag.
+update public.rmc_policies set config = config || '{"invoice_tolerance_pct": 2}'::jsonb
+where not config ? 'invoice_tolerance_pct';
+
+-- Demo story (spec section 9): flights and the shipment are booked with Skyline Moves & Travel.
+-- The shipment invoice matches the agreed price; the flights invoice is 8% over, so it is flagged.
+-- Only applied while those demo services have no provider yet. Their portal links are random and
+-- unknown to anyone; RMC staff can issue a fresh link with "New provider link".
+do $$
+declare
+  a1 uuid := '40000000-0000-0000-0000-000000000001';
+  skyline uuid := '50000000-0000-0000-0000-000000000002';
+  consultant uuid := '30000000-0000-0000-0000-000000000002';
+  svc record;
+  wo_id uuid;
+begin
+  for svc in
+    select s.*, case s.service_key when 'flights' then 108000 else 365000 end as price,
+           case s.service_key when 'flights' then 'SKY-DEMO-1042' else 'SKY-DEMO-1043' end as booking_ref,
+           case s.service_key when 'flights' then 'INV-SKY-2291' else 'INV-SKY-2292' end as invoice_no,
+           case s.service_key when 'flights' then 116640 else 365000 end as invoiced
+    from public.plan_services s
+    where s.assignment_id = a1 and s.service_key in ('flights', 'household_goods') and s.selected_vendor_id is null
+  loop
+    update public.plan_services
+    set selected_vendor_id = skyline, agreed_cost = svc.price, agreed_over_cap = false,
+        selected_by = consultant, selected_at = now()
+    where id = svc.id;
+
+    insert into public.work_orders (service_id, assignment_id, rmc_tenant_id, vendor_id, agreed_cost, details,
+      status, token_hash, token_expires_at, booking_reference, booked_for, sent_by)
+    select svc.id, a1, svc.rmc_tenant_id, skyline, svc.price,
+      jsonb_build_object('service_title', svc.title, 'category', svc.category, 'description', svc.description,
+        'start_date', svc.start_date, 'due_date', svc.due_date, 'employee_name', a.employee_name,
+        'family_size', a.family_size, 'origin', a.origin, 'destination', a.destination, 'move_date', a.move_date),
+      'booked', encode(extensions.gen_random_bytes(32), 'hex'), now() + interval '60 days',
+      svc.booking_ref, coalesce(svc.start_date, a.move_date), consultant
+    from public.assignments a where a.id = a1
+    returning id into wo_id;
+
+    insert into public.work_order_events (work_order_id, rmc_tenant_id, event, actor, actor_profile_id)
+    values (wo_id, svc.rmc_tenant_id, 'sent', 'staff', consultant),
+           (wo_id, svc.rmc_tenant_id, 'booked', 'vendor_portal', null);
+
+    perform private.record_invoice(wo_id, svc.invoice_no, current_date, svc.invoiced, 'portal', null, null);
+  end loop;
+  update public.assignments set status = 'in_progress' where id = a1 and status = 'planned';
+end $$;
