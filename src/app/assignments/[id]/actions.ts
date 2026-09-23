@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { canSeeBudgets } from "@/lib/roles";
 import { generatePlan } from "@/lib/planner/generate";
 import { createClient } from "@/lib/supabase/server";
+import { recordId } from "@/lib/validation";
 
 export type GenerateState = { error?: string } | undefined;
 
@@ -14,7 +15,7 @@ export async function generatePlanAction(_prev: GenerateState, formData: FormDat
   const user = await requireUser();
   if (!canSeeBudgets(user.role)) return { error: "You can't generate plans." };
 
-  const id = z.string().uuid().safeParse(formData.get("assignmentId"));
+  const id = recordId.safeParse(formData.get("assignmentId"));
   if (!id.success) return { error: "Unknown relocation." };
 
   const supabase = await createClient();
@@ -31,7 +32,7 @@ export async function selectProviderAction(_prev: ProviderState, formData: FormD
   if (user.role !== "rmc_admin" && user.role !== "consultant") return { error: "You can't choose providers." };
 
   const ids = z
-    .object({ serviceId: z.string().uuid(), vendorId: z.string().uuid("Choose a provider"), assignmentId: z.string().uuid() })
+    .object({ serviceId: recordId, vendorId: z.string().min(1, "Choose a provider").pipe(recordId), assignmentId: recordId })
     .safeParse({
       serviceId: formData.get("serviceId"),
       vendorId: formData.get("vendorId"),

@@ -45,3 +45,7 @@ export function relocationRequestSchema(today: string = todayIso()) {
 }
 
 export type RelocationRequestInput = z.infer<ReturnType<typeof relocationRequestSchema>>;
+
+// Record IDs from the database. Accepts any well-formed ID (the demo data uses
+// readable fixed IDs that aren't random v4 UUIDs); the database checks the rest.
+export const recordId = z.string().guid("Unknown record");
