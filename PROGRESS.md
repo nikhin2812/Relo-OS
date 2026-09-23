@@ -108,6 +108,11 @@
   185; 97 unit tests; API tests for work orders and the portal; Playwright end-to-end
   transaction test (request → plan → provider → approval → work order → portal booking →
   employee sees "Booked" → HR overview → CSV export/import).
+- CI green (36 browser tests, no retries). Fixed on the way: the growing browser suite hit
+  Supabase's sign-in limit (~30 per 5 minutes), so each test user now signs in once per run
+  and tests reuse that session; sign-out now ends only the current browser's session; the
+  one-time work order link now stays on screen after the page refreshes; a test's expected
+  figure was mis-added. Security Advisor: fixed a missing search_path on a new helper.
 
 ## Next
 - Session 6: reconciliation — invoice matched to relocation, service and budget (MVP item 10).
@@ -116,6 +121,8 @@
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
   and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
   "AI planning isn't switched on yet" and keeps the request.
+- Security Advisor also lists the three `portal_*` functions as callable without signing in.
+  Intended: they are the account-free provider portal and each one checks the link.
 - Real email needs a Resend account: add `RESEND_API_KEY` and `EMAIL_FROM` (Session 7).
 - Security Advisor warns that signed-in users can run several database functions
   (`create_relocation_request`, `save_relocation_plan`, `record_plan_failure`,
