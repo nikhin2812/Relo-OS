@@ -224,3 +224,36 @@ set status = 'ready', summary = 'Sample plan: six services to move Eshan Employe
     model = 'sample-plan', attempts = 1, generated_at = now(), updated_at = now()
 where assignment_id = '40000000-0000-0000-0000-000000000001' and status = 'pending' and (select count(*) from svc) > 0 and (select count(*) from ms) > 0;
 update public.assignments set status = 'planned' where id = '40000000-0000-0000-0000-000000000001' and status = 'requested';
+
+-- ---------------------------------------------------------------- Session 4
+
+-- The demo family's to-dos, from its sample plan.
+select private.create_journey_tasks('40000000-0000-0000-0000-000000000001');
+
+-- An employee at the test-only company, used by tests of the employee journey.
+with test_users (id, email, full_name) as (values
+  ('3e000000-0000-0000-0000-000000000004'::uuid, 'e2e-employee@test.relo-os.test', 'Test Employee (Automated)')
+), ins_users as (
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change,
+    email_change_token_current, phone_change, phone_change_token, reauthentication_token
+  )
+  select '00000000-0000-0000-0000-000000000000', id, 'authenticated', 'authenticated', email,
+    extensions.crypt('{{DEMO_PASSWORD}}', extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}', jsonb_build_object('full_name', full_name),
+    now(), now(), '', '', '', '', '', '', '', ''
+  from test_users
+  on conflict (id) do nothing
+  returning id, email
+)
+insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at)
+select gen_random_uuid(), id, id::text, 'email',
+  jsonb_build_object('sub', id::text, 'email', email, 'email_verified', true), now(), now(), now()
+from ins_users;
+
+insert into public.profiles (id, rmc_tenant_id, role, full_name, email, client_company_id) values
+  ('3e000000-0000-0000-0000-000000000004', '1e000000-0000-0000-0000-000000000001', 'employee',
+   'Test Employee (Automated)', 'e2e-employee@test.relo-os.test', '2e000000-0000-0000-0000-000000000001')
+on conflict (id) do nothing;

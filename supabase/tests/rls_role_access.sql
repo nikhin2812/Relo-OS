@@ -58,21 +58,24 @@ declare
   svc_three uuid := 'f0000000-0000-0000-0000-000000000043';
   svc_imm uuid := 'f0000000-0000-0000-0000-000000000044';
   vendor_ids text;
+  task_a1 uuid := 'f0000000-0000-0000-0000-000000000051';
+  task_a3 uuid := 'f0000000-0000-0000-0000-000000000053';
   users jsonb;
   ids text := format('(%L::uuid, %L::uuid, %L::uuid, %L::uuid)', a1, a2, a3, a4);
   -- query per table, limited to rows this test controls
   queries jsonb;
   -- expected rows per role, in the order of `tbl_names`
   expect jsonb := jsonb_build_object(
-    'rmc_admin',       '[1, 2, 5, 3, 3, 1, 1, 3, 5, 3, 2, 2]',
-    'consultant',      '[1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 2, 2]',
-    'hr_user',         '[1, 1, 1, 2, 2, 0, 1, 2, 4, 2, 1, 0]',
-    'employee',        '[1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0]',
-    'vendor',          '[1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]',
-    'other_rmc_admin', '[1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]');
+    'rmc_admin',       '[1, 2, 5, 3, 3, 1, 1, 3, 5, 3, 2, 2, 3, 2, 4]',
+    'consultant',      '[1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 2, 2, 2, 1, 3]',
+    'hr_user',         '[1, 1, 1, 2, 2, 0, 1, 2, 4, 2, 1, 0, 2, 1, 3]',
+    'employee',        '[1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 2, 1, 3]',
+    'vendor',          '[1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]',
+    'other_rmc_admin', '[1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1]');
   tbl_names text[] := array['rmc_tenants', 'client_companies', 'profiles', 'assignments',
     'assignment_budgets', 'assignment_consultants', 'rmc_policies', 'relocation_plans',
-    'plan_services', 'plan_milestones', 'vendors', 'vendor_rates'];
+    'plan_services', 'plan_milestones', 'vendors', 'vendor_rates', 'journey_tasks', 'documents',
+    'stored_files'];
   good_plan text := '{"summary":"Fixture plan","services":[{"key":"fx_a","category":"immigration","title":"FX visa","sequence":1,"depends_on":[],"start_date":"2026-12-01","due_date":"2026-12-10","estimated_cost":1000,"policy_status":"within_policy","approval_required":false}],"milestones":[{"title":"FX done","due_date":"2026-12-10","sequence":1,"related_service_keys":["fx_a"]}]}';
   bad_plan text := '{"summary":"Bad","services":[{"key":"fx_b","category":"flights","title":"FX flight","sequence":2,"depends_on":["missing"],"estimated_cost":10,"policy_status":"within_policy"}],"milestones":[]}';
   results jsonb := '[]';
@@ -96,7 +99,10 @@ begin
     'plan_services', 'select count(*) from public.plan_services where service_key like ''fx\_%''',
     'plan_milestones', 'select count(*) from public.plan_milestones where title like ''FX %''',
     'vendors', 'select count(*) from public.vendors where id in ' || vendor_ids,
-    'vendor_rates', 'select count(*) from public.vendor_rates where vendor_id in ' || vendor_ids);
+    'vendor_rates', 'select count(*) from public.vendor_rates where vendor_id in ' || vendor_ids,
+    'journey_tasks', 'select count(*) from public.journey_tasks where title like ''FX %''',
+    'documents', 'select count(*) from public.documents where file_name like ''FX %''',
+    'stored_files', 'select count(*) from storage.objects where bucket_id = ''relocation-documents'' and name like ''%/fx-%''');
 
   begin
     -- Fixtures
@@ -136,6 +142,21 @@ begin
       (gen_random_uuid(), a4, t2, 'fx_four', 'flights', 'FX 4', 1, 10, 'within_policy', null, null);
     insert into public.plan_milestones (assignment_id, rmc_tenant_id, title, due_date, sequence) values
       (a1, t1, 'FX m1', '2026-11-15', 1), (a3, t1, 'FX m3', '2026-12-01', 1), (a4, t2, 'FX m4', '2026-12-01', 1);
+    insert into public.journey_tasks (id, assignment_id, rmc_tenant_id, service_key, title, due_date) values
+      (task_a1, a1, t1, 'fx_one', 'FX task 1', '2026-11-01'),
+      (gen_random_uuid(), a1, t1, 'fx_one', 'FX task 2', '2026-11-02'),
+      (task_a3, a3, t1, 'fx_three', 'FX task 3', '2026-11-01'),
+      (gen_random_uuid(), a4, t2, 'fx_four', 'FX task 4', '2026-11-01');
+    insert into storage.objects (bucket_id, name, owner_id) values
+      ('relocation-documents', a1 || '/fx-1.pdf', admin::text),
+      ('relocation-documents', a3 || '/fx-3.pdf', admin::text),
+      ('relocation-documents', a4 || '/fx-4.pdf', other_admin::text),
+      ('relocation-documents', a1 || '/fx-employee.pdf', employee::text),
+      ('relocation-documents', a1 || '/fx-hr.pdf', hr::text);
+    insert into public.documents (assignment_id, rmc_tenant_id, kind, file_name, storage_path, mime_type, size_bytes) values
+      (a1, t1, 'visa', 'FX doc 1', a1 || '/fx-1.pdf', 'application/pdf', 100),
+      (a3, t1, 'visa', 'FX doc 3', a3 || '/fx-3.pdf', 'application/pdf', 100),
+      (a4, t2, 'visa', 'FX doc 4', a4 || '/fx-4.pdf', 'application/pdf', 100);
 
     -- a2 gets its plan through the real save function, run as HR
     insert into public.relocation_plans (assignment_id, rmc_tenant_id, status) values (a2, t1, 'pending');
@@ -158,6 +179,65 @@ begin
       got := pg_temp.try_as(uid, 'select public.reset_test_tenant_data()');
       results := results || jsonb_build_object('c', who || ' cannot wipe a non-test tenant', 'e', '42501', 'a', got);
     end loop;
+
+    -- The employee journey: no money in the services list, only own relocation
+    select count(*)::text into got from pg_proc p, unnest(p.proargnames) n
+      where p.proname = 'journey_services' and n ~* '(cost|budget|rate|price|policy|approval)';
+    results := results || jsonb_build_object('c', 'journey_services returns no money or policy fields', 'e', '0', 'a', got);
+    got := pg_temp.try_as(employee, format('select * from public.journey_services(%L)', a1));
+    results := results || jsonb_build_object('c', 'employee can read own journey services', 'e', 'ok', 'a', got);
+    got := pg_temp.count_as(employee, format('select count(*) from public.journey_services(%L) where service_key like %L', a1, 'fx\_%'))::text;
+    results := results || jsonb_build_object('c', 'employee journey lists own services', 'e', '3', 'a', got);
+    foreach who in array array['employee', 'vendor'] loop
+      got := pg_temp.try_as((users ->> who)::uuid, format('select * from public.journey_services(%L)', a3));
+      results := results || jsonb_build_object('c', who || ' cannot read another relocation''s journey', 'e', '42501', 'a', got);
+    end loop;
+    got := pg_temp.try_as(vendor, format('select * from public.journey_services(%L)', a1));
+    results := results || jsonb_build_object('c', 'vendor cannot read the demo journey', 'e', '42501', 'a', got);
+
+    -- To-dos: employee ticks own; nobody touches another relocation's
+    got := pg_temp.try_as(employee, format('select public.set_journey_task_done(%L, true)', task_a1));
+    results := results || jsonb_build_object('c', 'employee can tick off own to-do', 'e', 'ok', 'a', got);
+    select status into got from public.journey_tasks where id = task_a1;
+    results := results || jsonb_build_object('c', 'ticked to-do is done', 'e', 'done', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.set_journey_task_done(%L, true)', task_a3));
+    results := results || jsonb_build_object('c', 'employee cannot tick another relocation''s to-do', 'e', '42501', 'a', got);
+    foreach who in array array['vendor', 'other_rmc_admin'] loop
+      got := pg_temp.try_as((users ->> who)::uuid, format('select public.set_journey_task_done(%L, false)', task_a1));
+      results := results || jsonb_build_object('c', who || ' cannot change the demo to-dos', 'e', '42501', 'a', got);
+    end loop;
+    got := pg_temp.try_as(employee, format('update public.journey_tasks set status = %L where id = %L', 'todo', task_a1));
+    results := results || jsonb_build_object('c', 'to-dos cannot be edited directly', 'e', '42501', 'a', got);
+
+    -- Documents: upload into own relocation only; register only own uploaded files
+    got := pg_temp.try_as(employee, format('insert into storage.objects (bucket_id, name, owner_id) values (%L, %L, %L)', 'relocation-documents', a3 || '/fx-sneaky.pdf', employee));
+    results := results || jsonb_build_object('c', 'employee cannot upload into another relocation', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(vendor, format('insert into storage.objects (bucket_id, name, owner_id) values (%L, %L, %L)', 'relocation-documents', a1 || '/fx-vendor.pdf', vendor));
+    results := results || jsonb_build_object('c', 'vendor cannot upload into the demo relocation', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a1, 'identity', 'FX passport', a1 || '/fx-employee.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'employee can register own uploaded file', 'e', 'ok', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a1, 'identity', 'FX not mine', a1 || '/fx-hr.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'employee cannot register a file someone else uploaded', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a1, 'identity', 'FX missing', a1 || '/fx-missing.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'a file that was never uploaded cannot be registered', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a1, 'identity', 'FX wrong place', a3 || '/fx-3.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'a file stored under another relocation cannot be registered', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(employee, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a3, 'identity', 'FX other', a3 || '/fx-3.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'employee cannot add documents to another relocation', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(vendor, format('select public.register_document(%L, null, %L, %L, %L, %L, 10)', a1, 'other', 'FX vendor', a1 || '/fx-1.pdf', 'application/pdf'));
+    results := results || jsonb_build_object('c', 'vendor cannot add documents to the demo relocation', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(employee, format('delete from public.documents where storage_path = %L', a1 || '/fx-1.pdf'));
+    results := results || jsonb_build_object('c', 'documents cannot be deleted directly', 'e', '42501', 'a', got);
+
+    -- HR can link a relocation to an employee at its own company only
+    got := pg_temp.try_as(hr, 'select public.create_relocation_request(''Linked (fixture)'', 1, ''Pune'', ''Doha'', current_date + 30, 1000, ''EMPLOYEE@demo.relo-os.test'')');
+    results := results || jsonb_build_object('c', 'hr_user can link an employee at own company', 'e', 'ok', 'a', got);
+    select count(*)::text into got from public.assignments where employee_name = 'Linked (fixture)' and employee_profile_id = employee;
+    results := results || jsonb_build_object('c', 'linked relocation belongs to that employee', 'e', '1', 'a', got);
+    got := pg_temp.try_as(hr, 'select public.create_relocation_request(''Linked (fixture)'', 1, ''Pune'', ''Doha'', current_date + 30, 1000, ''e2e-employee@test.relo-os.test'')');
+    results := results || jsonb_build_object('c', 'hr_user cannot link an employee from another company', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(hr, 'select public.create_relocation_request(''Linked (fixture)'', 1, ''Pune'', ''Doha'', current_date + 30, 1000, ''consultant@demo.relo-os.test'')');
+    results := results || jsonb_build_object('c', 'hr_user cannot link a non-employee login', 'e', '22023', 'a', got);
 
     -- Vendors see their own company only
     got := pg_temp.count_as(vendor, format('select count(*) from public.vendors where id = %L', skyline))::text;
@@ -232,7 +312,7 @@ begin
 
     -- Logged-out visitors are refused outright.
     perform set_config('request.jwt.claims', '{"role":"anon"}', true);
-    foreach who in array tbl_names loop
+    foreach who in array array_remove(tbl_names, 'stored_files') loop
       begin
         perform set_config('role', 'anon', true);
         execute format('select count(*) from public.%I', who);
@@ -252,6 +332,14 @@ begin
     end;
     execute 'reset role';
     results := results || jsonb_build_object('c', 'logged-out visitor cannot create requests', 'e', '42501', 'a', got);
+    begin
+      perform set_config('role', 'anon', true);
+      select count(*)::text into got from storage.objects where bucket_id = 'relocation-documents';
+    exception when others then
+      got := sqlstate;
+    end;
+    execute 'reset role';
+    results := results || jsonb_build_object('c', 'logged-out visitor sees no stored files', 'e', '0', 'a', got);
 
     raise exception 'rollback fixtures' using errcode = 'ZZ001';
   exception when sqlstate 'ZZ001' then
