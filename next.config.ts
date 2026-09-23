@@ -2,6 +2,17 @@ import type { NextConfig } from "next";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
+// On Vercel, stop the build if a required setting is missing, instead of going live with a
+// site that fails on every page. (Values are read at build time, so add them before deploying.)
+if (process.env.VERCEL) {
+  const missing = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_APP_URL"].filter(
+    (name) => !process.env[name]?.trim(),
+  );
+  if (missing.length > 0) {
+    throw new Error(`Missing Vercel environment variables: ${missing.join(", ")}. See DEPLOY.md.`);
+  }
+}
+
 // Browser protections sent with every page. The content security policy is only
 // applied to production builds (the dev server needs eval for hot reload).
 const securityHeaders = [
