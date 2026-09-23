@@ -60,12 +60,14 @@ test("HR creates a request and sees the generated plan with costs, policy flags 
   const rows = page.getByTestId("service-row");
   await expect(rows).toHaveCount(6);
   await expect(rows.first()).toContainText("Step 1");
-  const housing = rows.filter({ hasText: "Temporary housing" });
+  // Match on each step's title; other steps mention it in "after …".
+  const step = (title: RegExp) => rows.filter({ has: page.getByRole("heading", { name: title }) });
+  const housing = step(/^Temporary housing/);
   await expect(housing).toContainText("Out of policy");
   await expect(housing).toContainText("Needs approval");
   await expect(housing).toContainText("₹4,20,000");
   await expect(housing).toContainText("after One-way flights");
-  await expect(rows.filter({ hasText: "Work and family visas" })).toContainText("Within policy");
+  await expect(step(/^Work and family visas$/)).toContainText("Within policy");
 
   // Budget maths: ₹11,59,000 of ₹15,00,000
   await expect(page.getByTestId("budget")).toHaveText("₹15,00,000");
