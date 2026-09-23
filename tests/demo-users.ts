@@ -17,3 +17,4 @@ export function demoPassword(): string {
 // HR user in a separate test-only RMC, used by tests that create data.
 export const TEST_HR_EMAIL = "e2e-hr@test.relo-os.test";
 export const TEST_ADMIN_EMAIL = "e2e-admin@test.relo-os.test";
+export const TEST_EMPLOYEE_EMAIL = "e2e-employee@test.relo-os.test";

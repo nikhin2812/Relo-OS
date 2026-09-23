@@ -7,7 +7,9 @@ import { requireUser } from "@/lib/auth";
 import { canSeeBudgets } from "@/lib/roles";
 import { generatePlan } from "@/lib/planner/generate";
 import { createClient } from "@/lib/supabase/server";
+import { DOCUMENTS_BUCKET } from "@/lib/supabase/buckets";
 import { recordId } from "@/lib/validation";
+import { DOCUMENT_KINDS, MAX_UPLOAD_BYTES, checkUpload, storagePath } from "@/lib/documents";
 
 export type GenerateState = { error?: string } | undefined;
 
@@ -51,4 +53,84 @@ export async function selectProviderAction(_prev: ProviderState, formData: FormD
   }
   revalidatePath(`/assignments/${ids.data.assignmentId}`);
   return { saved: true };
+}
+
+export type TaskState = { error?: string } | undefined;
+
+// MVP item 6: tick a to-do off (or reopen it).
+export async function setTaskDoneAction(_prev: TaskState, formData: FormData): Promise<TaskState> {
+  await requireUser();
+  const parsed = z
+    .object({ taskId: recordId, assignmentId: recordId, done: z.enum(["true", "false"]) })
+    .safeParse({ taskId: formData.get("taskId"), assignmentId: formData.get("assignmentId"), done: formData.get("done") });
+  if (!parsed.success) return { error: "Unknown task." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_journey_task_done", {
+    p_task_id: parsed.data.taskId,
+    p_done: parsed.data.done === "true",
+  });
+  if (error) {
+    console.error("set_journey_task_done failed", error.code, error.message);
+    return { error: "That task could not be updated." };
+  }
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return undefined;
+}
+
+export type UploadState = { error?: string; saved?: string } | undefined;
+
+// MVP item 7: upload a document. The file type is decided from its content,
+// storage policies check access, then the database records it.
+export async function uploadDocumentAction(_prev: UploadState, formData: FormData): Promise<UploadState> {
+  await requireUser();
+  const parsed = z
+    .object({
+      assignmentId: recordId,
+      kind: z.enum(DOCUMENT_KINDS, { error: "Choose what kind of document this is" }),
+      serviceId: z.union([z.literal(""), recordId]),
+    })
+    .safeParse({
+      assignmentId: formData.get("assignmentId"),
+      kind: formData.get("kind"),
+      serviceId: formData.get("serviceId") ?? "",
+    });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload." };
+  if (file.size > MAX_UPLOAD_BYTES) return { error: "Files can be up to 4 MB." };
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const check = checkUpload(file.name, file.size, bytes.subarray(0, 16));
+  if (!check.ok) return { error: check.error };
+
+  const { assignmentId, kind, serviceId } = parsed.data;
+  const path = storagePath(assignmentId, crypto.randomUUID(), check.ext);
+  const supabase = await createClient();
+  const bucket = supabase.storage.from(DOCUMENTS_BUCKET);
+
+  const upload = await bucket.upload(path, bytes, { contentType: check.mime, upsert: false });
+  if (upload.error) {
+    console.error("document upload failed", upload.error.message);
+    return { error: "You can't add documents to this relocation, or the upload failed." };
+  }
+
+  const { error } = await supabase.rpc("register_document", {
+    p_assignment_id: assignmentId,
+    p_service_id: serviceId || null,
+    p_kind: kind,
+    p_file_name: check.fileName,
+    p_storage_path: path,
+    p_mime_type: check.mime,
+    p_size_bytes: file.size,
+  });
+  if (error) {
+    console.error("register_document failed", error.code, error.message);
+    await bucket.remove([path]);
+    return { error: "The document could not be saved." };
+  }
+
+  revalidatePath(`/assignments/${assignmentId}`);
+  return { saved: check.fileName };
 }

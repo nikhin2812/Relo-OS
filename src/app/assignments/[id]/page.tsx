@@ -11,7 +11,12 @@ import { providerOptions, type Vendor, type VendorRate } from "@/lib/providers";
 import { canSeeBudgets } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/server";
 
+import { DOCUMENT_KIND_LABELS, type DocumentKind } from "@/lib/documents";
+import { buildJourney, taskProgress, type JourneyService, type JourneyTask } from "@/lib/journey";
+
+import { DocumentUpload } from "./document-upload";
 import { GeneratePlanButton } from "./generate-button";
+import { TaskToggle } from "./task-toggle";
 import { ProviderPicker } from "./provider-picker";
 
 export const maxDuration = 180;
@@ -52,7 +57,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
   const costed = canSeeBudgets(user.role);
   const picksProviders = user.role === "rmc_admin" || user.role === "consultant";
-  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes] = await Promise.all([
+  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes, journeyRes, tasksRes, docsRes] = await Promise.all([
     costed ? supabase.from("assignment_budgets").select("amount").eq("assignment_id", id).maybeSingle() : null,
     costed ? supabase.from("relocation_plans").select("status, summary, error_message, model").eq("assignment_id", id).maybeSingle() : null,
     costed
@@ -63,6 +68,10 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     costed ? supabase.from("vendors").select("id, name, city").returns<Vendor[]>() : null,
     picksProviders ? supabase.from("vendor_rates").select("vendor_id, category, rate, rate_basis, description").returns<VendorRate[]>() : null,
     picksProviders ? supabase.from("rmc_policies").select("config").maybeSingle() : null,
+    // The journey: services without money, to-dos and documents (everyone who can see the relocation except vendors)
+    supabase.rpc("journey_services", { p_assignment_id: id }),
+    supabase.from("journey_tasks").select("id, title, due_date, status, service_key").eq("assignment_id", id).order("due_date").returns<JourneyTask[]>(),
+    supabase.from("documents").select("id, kind, file_name, created_at, service_id").eq("assignment_id", id).order("created_at", { ascending: false }),
   ]);
 
   const budget = budgetRes?.data ? Number(budgetRes.data.amount) : null;
@@ -76,6 +85,13 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const vendorNames = new Map(vendors.map((v) => [v.id, v.name]));
   const rates = ratesRes?.data ?? [];
   const policy = (policyRes?.data?.config ?? {}) as PolicyConfig;
+  const journeyServices = (journeyRes.data ?? []) as JourneyService[];
+  const tasks = tasksRes.data ?? [];
+  const documents = docsRes.data ?? [];
+  const today = new Date().toISOString().slice(0, 10);
+  const journey = buildJourney(journeyServices, milestones, tasks, today);
+  const progress = taskProgress(tasks);
+  const serviceTitles = new Map(journeyServices.map((s) => [s.id, s.title]));
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-8">
@@ -203,23 +219,78 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {milestones.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Key dates</CardTitle>
-          </CardHeader>
+      <Card>
+        <CardHeader>
+          <CardTitle>{user.role === "employee" ? "Your journey" : "Employee journey"}</CardTitle>
+          <CardDescription>
+            {journey.length === 0
+              ? "The journey appears here once the relocation plan is ready."
+              : `Every step, key date and to-do in one place. To-dos done: ${progress.done} of ${progress.total}.`}
+          </CardDescription>
+        </CardHeader>
+        {journey.length > 0 && (
           <CardContent>
-            <ol className="flex flex-col gap-2 text-sm" data-testid="milestone-list">
-              {milestones.map((m) => (
-                <li key={m.id} className="flex justify-between gap-4">
-                  <span>{m.title}</span>
-                  <span className="text-neutral-600">{formatDate(m.due_date)}</span>
+            <ol className="flex flex-col divide-y divide-neutral-100" data-testid="journey">
+              {journey.map((item) => (
+                <li key={`${item.kind}-${item.id}`} className="flex flex-wrap items-start gap-x-4 gap-y-1 py-3" data-testid={`journey-${item.kind}`}>
+                  <span className="w-28 shrink-0 text-sm text-neutral-500">{formatDate(item.date)}</span>
+                  <div className="min-w-0 flex-1">
+                    {item.kind === "milestone" && <p className="font-semibold">★ {item.title}</p>}
+                    {item.kind === "service" && (
+                      <>
+                        <p className="font-medium">{item.title}</p>
+                        <p className="text-sm text-neutral-600">
+                          {item.endDate ? `Until ${formatDate(item.endDate)}` : null}
+                          {item.provider ? `${item.endDate ? " · " : ""}With ${item.provider}` : null}
+                        </p>
+                      </>
+                    )}
+                    {item.kind === "task" && (
+                      <p className={item.done ? "text-neutral-500 line-through" : ""}>
+                        To-do: {item.title}
+                        {item.overdue && <span className="ml-2 text-xs font-medium text-red-700">Overdue</span>}
+                      </p>
+                    )}
+                  </div>
+                  {item.kind === "task" && (
+                    <TaskToggle assignmentId={assignment.id} taskId={item.id} title={item.title} done={item.done} />
+                  )}
                 </li>
               ))}
             </ol>
           </CardContent>
-        </Card>
-      )}
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Documents</CardTitle>
+          <CardDescription>Bookings, visas and other paperwork for this relocation, kept in one place.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {documents.length === 0 ? (
+            <p className="text-sm text-neutral-600">No documents yet.</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-neutral-100" data-testid="document-list">
+              {documents.map((d) => (
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm" data-testid="document-row">
+                  <div>
+                    <a href={`/documents/${d.id}`} className="font-medium hover:underline">
+                      {d.file_name}
+                    </a>
+                    <p className="text-neutral-500">
+                      {DOCUMENT_KIND_LABELS[d.kind as DocumentKind] ?? d.kind}
+                      {d.service_id && serviceTitles.get(d.service_id) ? ` · ${serviceTitles.get(d.service_id)}` : ""}
+                      {` · added ${formatDate(d.created_at.slice(0, 10))}`}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <DocumentUpload assignmentId={assignment.id} services={journeyServices.map((s) => ({ id: s.id, title: s.title }))} />
+        </CardContent>
+      </Card>
     </main>
   );
 }

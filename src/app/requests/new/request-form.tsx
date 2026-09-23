@@ -35,6 +35,15 @@ export function RequestForm({ minDate }: { minDate: string }) {
   return (
     <form action={action} className="flex flex-col gap-4">
       <Field name="employeeName" label="Employee name" defaultValue={v.employeeName} error={e.employeeName} required maxLength={200} />
+      <Field
+        name="employeeEmail"
+        label="Employee's login email (optional)"
+        type="email"
+        placeholder="So the employee can follow their journey"
+        defaultValue={v.employeeEmail}
+        error={e.employeeEmail}
+        maxLength={254}
+      />
       <Field name="familySize" label="Family size (including the employee)" type="number" min={1} max={20} defaultValue={v.familySize} error={e.familySize} required />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field name="origin" label="Moving from" placeholder="e.g. Bengaluru, India" defaultValue={v.origin} error={e.origin} required maxLength={200} />

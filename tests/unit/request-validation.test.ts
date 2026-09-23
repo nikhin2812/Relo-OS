@@ -48,3 +48,18 @@ describe("relocationRequestSchema", () => {
     expect(firstError({ destination: "bengaluru, india" })).toMatch(/different/);
   });
 });
+
+describe("employee login email (optional)", () => {
+  it("is optional", () => {
+    const r = check({});
+    expect(r.success && r.data.employeeEmail).toBe("");
+  });
+  it("accepts and tidies a valid email", () => {
+    const r = relocationRequestSchema(TODAY).safeParse({ ...valid, employeeEmail: "  Eshan@Demo.Relo-OS.test " });
+    expect(r.success && r.data.employeeEmail).toBe("eshan@demo.relo-os.test");
+  });
+  it("rejects a malformed email", () => {
+    const r = relocationRequestSchema(TODAY).safeParse({ ...valid, employeeEmail: "not-an-email" });
+    expect(r.success).toBe(false);
+  });
+});

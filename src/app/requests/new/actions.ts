@@ -11,7 +11,7 @@ export type RequestFormState =
   | { error?: string; fieldErrors?: Record<string, string>; values?: Record<string, string> }
   | undefined;
 
-const FIELDS = ["employeeName", "familySize", "origin", "destination", "moveDate", "budget"] as const;
+const FIELDS = ["employeeName", "familySize", "origin", "destination", "moveDate", "budget", "employeeEmail"] as const;
 
 export async function createRelocationRequest(_prev: RequestFormState, formData: FormData): Promise<RequestFormState> {
   const user = await requireUser();
@@ -37,6 +37,7 @@ export async function createRelocationRequest(_prev: RequestFormState, formData:
     p_destination: r.destination,
     p_move_date: r.moveDate,
     p_budget: r.budget,
+    p_employee_email: r.employeeEmail || null,
   });
   if (error || !assignmentId) {
     console.error("create_relocation_request failed", error?.code, error?.message);

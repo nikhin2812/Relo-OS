@@ -63,21 +63,44 @@
   and rate cards, Playwright provider-picking flow in the test-only RMC. CI green (18 browser
   tests). Fixed on the way: form ID check rejected the demo's fixed IDs.
 
+### Session 4 — Employee journey and documents (23 Sep 2026)
+- New tables (RLS on both): `journey_tasks` (employee to-dos, created automatically from the
+  plan's services) and `documents`. New private storage bucket `relocation-documents`
+  (PDF/JPG/PNG, 4 MB max) with storage policies: only the employee, RMC admin, allocated
+  consultant and HR at that company can read or upload a relocation's files.
+- `journey_services()` gives the journey's services with dates and provider name only — no
+  cost, rate, policy or approval fields. Employees still cannot read `plan_services`.
+- `set_journey_task_done()` and `register_document()` are the write paths (caller checked;
+  a document can only be registered by the person who uploaded that file, under that relocation).
+- Relocation page: "Your journey" timeline (services, key dates, to-dos in date order, overdue
+  marked, progress count) and a Documents section (upload, list, download via one-minute link).
+- HR request form: optional "Employee's login email" links the relocation to the employee
+  (must be an employee at HR's own company).
+- Upload checks decide the file type from its content, not its name; names are cleaned.
+- Tests: 185 database checks (all pass), 78 unit tests (all pass), API tests for the journey
+  and file access, Playwright journey/document flow and a strict "employee never sees money"
+  test (visible text and page data) for both the test employee and the demo employee.
+
 ## Next
-- Session 4: the employee journey and documents (MVP items 6 and 7).
+- Session 5: work orders, provider portal, HR progress and committed budget (MVP items 8 and 9).
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
   and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
   "AI planning isn't switched on yet" and keeps the request.
-- Security Advisor warns that signed-in users can run 5 database functions
+- Security Advisor warns that signed-in users can run 8 database functions
   (`create_relocation_request`, `save_relocation_plan`, `record_plan_failure`,
-  `reset_test_tenant_data`, `select_service_provider`). Intended: they are the only write paths and each checks the
+  `reset_test_tenant_data`, `select_service_provider`, `set_journey_task_done`,
+  `journey_services`, `register_document`). Intended: they are the only write paths and each checks the
   caller; the database tests prove it.
 - `save_relocation_plan` is callable by HR directly through the API, so a technically skilled
   HR user could submit a hand-written plan for their own company's relocation (not anyone
   else's). Before real clients: move plan saving behind a server-only key.
 - Leaked password protection needs a paid Supabase plan — deferred by owner.
+- Uploads are capped at 4 MB because they pass through the app (Vercel's request limit).
+  Larger files would need direct-to-storage uploads.
+- Files uploaded by automated tests stay in storage after the test RMC is cleared (their
+  database records are removed). Small; tidy up before launch.
 - The cloud workspace's network blocks Supabase, so login tests only run in GitHub
   Actions (repo secrets are set). CI is green as of commit after 0951f55.
 - Public sign-ups turned off by owner (23 Sep).

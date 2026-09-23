@@ -40,6 +40,8 @@ const TABLES = [
   "plan_milestones",
   "vendors",
   "vendor_rates",
+  "journey_tasks",
+  "documents",
 ] as const;
 type Table = (typeof TABLES)[number];
 
@@ -138,6 +140,9 @@ suite("role access through the API", () => {
     expect(r.vendors).toHaveLength(0);
     expect(r.vendor_rates).toHaveLength(0);
     expect(r.plan_milestones.every((m) => m.assignment_id === DEMO_ASSIGNMENT)).toBe(true);
+    expect(r.journey_tasks.length).toBeGreaterThan(0);
+    expect(r.journey_tasks.every((t) => t.assignment_id === DEMO_ASSIGNMENT)).toBe(true);
+    expect(r.documents.every((d) => d.assignment_id === DEMO_ASSIGNMENT)).toBe(true);
   });
 
   it("vendor sees no relocations, money or plans", () => {
@@ -201,6 +206,49 @@ suite("role access through the API", () => {
       expect(error?.code).toBe("42501");
     });
   }
+
+  it("the employee's journey services carry no money or policy fields", async () => {
+    const { data, error } = await clients.employee.rpc("journey_services", { p_assignment_id: DEMO_ASSIGNMENT });
+    expect(error).toBeNull();
+    expect(data!.length).toBeGreaterThan(0);
+    for (const row of data as Record<string, unknown>[]) {
+      expect(Object.keys(row).join(",")).not.toMatch(/cost|budget|rate|price|policy|approval/i);
+    }
+  });
+
+  it("vendor and other-RMC users cannot read the demo journey", async () => {
+    for (const role of ["vendor", "test_hr"] as const) {
+      const { error } = await clients[role as Role].rpc("journey_services", { p_assignment_id: DEMO_ASSIGNMENT });
+      expect(error?.code, role).toBe("42501");
+    }
+  });
+
+  it("the employee can upload a file to their relocation and remove it before it is registered", async () => {
+    const path = `${DEMO_ASSIGNMENT}/api-test-${Date.now()}.pdf`;
+    const bucket = clients.employee.storage.from("relocation-documents");
+    const up = await bucket.upload(path, new Blob(["%PDF-1.4 test"], { type: "application/pdf" }));
+    expect(up.error).toBeNull();
+    const signed = await bucket.createSignedUrl(path, 30);
+    expect(signed.error).toBeNull();
+    const removed = await bucket.remove([path]);
+    expect(removed.error).toBeNull();
+    expect(removed.data).toHaveLength(1);
+  });
+
+  for (const role of ["vendor", "test_hr"] as const) {
+    it(`${role} cannot upload files to the demo relocation`, async () => {
+      const path = `${DEMO_ASSIGNMENT}/should-fail-${Date.now()}.pdf`;
+      const up = await clients[role as Role].storage
+        .from("relocation-documents")
+        .upload(path, new Blob(["%PDF-1.4"], { type: "application/pdf" }));
+      expect(up.error).not.toBeNull();
+    });
+  }
+
+  it("files the employee cannot see are not listed or signed for them", async () => {
+    const list = await clients.vendor.storage.from("relocation-documents").list(DEMO_ASSIGNMENT);
+    expect(list.data ?? []).toHaveLength(0);
+  });
 
   it("demo HR cannot wipe data (only the test RMC allows that)", async () => {
     const { error } = await clients.hr_user.rpc("reset_test_tenant_data");

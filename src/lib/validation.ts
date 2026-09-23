@@ -37,6 +37,15 @@ export function relocationRequestSchema(today: string = todayIso()) {
         .number({ error: "Enter the budget" })
         .positive("Budget must be more than ₹0")
         .max(100_000_000, "Budget must be ₹10 crore or less"),
+      // Optional: links the relocation to the employee's login so they can see it.
+      employeeEmail: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(254)
+        .refine((v) => v === "" || z.email().safeParse(v).success, "Enter a valid email or leave it empty")
+        .optional()
+        .default(""),
     })
     .refine((r) => r.origin.toLowerCase() !== r.destination.toLowerCase(), {
       message: "Origin and destination must be different",
