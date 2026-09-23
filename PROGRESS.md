@@ -163,10 +163,27 @@
   click-by-click Vercel steps. `LAUNCH_REPORT.md` is the plain-language launch report with
   the demo logins.
 
+### Session 7b — Plan signing and a separate test database (23 Sep 2026)
+- **Plan signing** (migration `20260925000001_plan_signing.sql`): `save_relocation_plan` now
+  takes the plan as text plus a timestamp and an HMAC-SHA256 signature. The secret lives in
+  `private.plan_signing_key` (no user can read it) and in the server's `PLAN_SIGNING_SECRET`.
+  Unsigned, altered or 10+ minute-old plans are refused with "not allowed". The owner makes
+  the secret with `select private.new_plan_signing_secret();` in the SQL editor.
+  Code: `src/lib/planner/signing.ts`; `generate.ts` signs before saving and records a clear
+  failure if the secret is missing.
+- **Separate test database**: new Supabase project **Relo OS Test** (`ueztyqcsztfcvavnrbst`,
+  Tokyo) with all 9 migrations and the same demo + test seed. ARRIVO was paused (owner's
+  choice) to stay within the free plan's 2 active projects. CI refuses to run against the
+  live demo database.
+- Tests: role checks 185 → 198 (unsigned/altered/old plans refused; no role can read or
+  make the signing secret). All 315 database checks pass on the test database; 185-check
+  suite's plan checks updated. 113 unit tests (5 new for signing); API test: every role's
+  hand-written plan refused, and an old real signature refused.
+
 ## Next
-- Owner: deploy on Vercel with DEPLOY.md, add the domain, send the URL for a live check.
-- Needs a yes (schema): plan signing so HR cannot save a hand-written plan.
-- Recommended: a separate Supabase project for CI so tests never touch the demo database.
+- Owner: GitHub secrets → point CI at Relo OS Test and add `PLAN_SIGNING_SECRET` (see chat).
+- Owner: deploy on Vercel with DEPLOY.md (now includes the signing secret step), send the URL.
+- Later: remove the old test-only RMC and its three test logins from the demo database.
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
@@ -180,16 +197,13 @@
   `reset_test_tenant_data`, `select_service_provider`, `set_journey_task_done`,
   `journey_services`, `register_document`). Intended: they are the only write paths and each checks the
   caller; the database tests prove it.
-- `save_relocation_plan` is callable by HR directly through the API, so a technically skilled
-  HR user could submit a hand-written plan for their own company's relocation (not anyone
-  else's). Before real clients: move plan saving behind a server-only key.
 - Leaked password protection needs a paid Supabase plan — deferred by owner.
 - Uploads are capped at 4 MB because they pass through the app (Vercel's request limit).
   Larger files would need direct-to-storage uploads.
 - Files uploaded by automated tests stay in storage after the test RMC is cleared (their
   database records are removed). Small; tidy up before launch.
 - The cloud workspace's network blocks Supabase, so login tests only run in GitHub
-  Actions (repo secrets are set). CI is green as of commit after 0951f55.
+  Actions, now against the Relo OS Test project.
 - Public sign-ups turned off by owner (23 Sep).
 
 - Demo invoice INV-SKY-2291 is meant to stay "Flagged" for the demo recording. Approving or

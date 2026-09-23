@@ -8,6 +8,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { planSigningSecret, signPlan } from "@/lib/planner/signing";
 import type { Role } from "@/lib/roles";
 
 import { DEMO_USERS, TEST_HR_EMAIL, demoPassword } from "../demo-users";
@@ -203,16 +204,33 @@ suite("role access through the API", () => {
     });
   }
 
-  for (const role of ["employee", "vendor"] as Role[]) {
-    it(`${role} cannot save a plan`, async () => {
+  // Plans can only be saved with the server's signature, whoever calls the database.
+  const handWrittenPlan = JSON.stringify({ summary: "x", services: [], milestones: [] });
+  for (const role of ["rmc_admin", "consultant", "hr_user", "employee", "vendor"] as Role[]) {
+    it(`${role} cannot save a hand-written plan`, async () => {
+      const forged = signPlan("not-the-real-secret-".repeat(3), DEMO_ASSIGNMENT, handWrittenPlan, "x");
       const { error } = await clients[role].rpc("save_relocation_plan", {
         p_assignment_id: DEMO_ASSIGNMENT,
-        p_plan: { summary: "x", services: [], milestones: [] },
+        p_plan: handWrittenPlan,
         p_model: "x",
+        p_signed_at: forged.signedAt,
+        p_signature: forged.signature,
       });
       expect(error?.code).toBe("42501");
     });
   }
+
+  it.runIf(planSigningSecret())("an old signature from the real server is refused", async () => {
+    const stale = signPlan(planSigningSecret()!, DEMO_ASSIGNMENT, handWrittenPlan, "x", Date.now() - 20 * 60_000);
+    const { error } = await clients.hr_user.rpc("save_relocation_plan", {
+      p_assignment_id: DEMO_ASSIGNMENT,
+      p_plan: handWrittenPlan,
+      p_model: "x",
+      p_signed_at: stale.signedAt,
+      p_signature: stale.signature,
+    });
+    expect(error?.code).toBe("42501");
+  });
 
   for (const role of ["hr_user", "employee", "vendor"] as Role[]) {
     it(`${role} cannot choose providers`, async () => {

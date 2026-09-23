@@ -30,6 +30,20 @@ begin
   return n;
 end $$;
 
+-- A save_relocation_plan call signed the way the app's server signs it
+-- (see supabase/migrations/20260925000001_plan_signing.sql). p_age_ms makes an old signature.
+create or replace function pg_temp.signed_save(a uuid, plan text, p_age_ms bigint default 0) returns text
+language plpgsql as $$
+declare
+  k text;
+  ts bigint := (extract(epoch from now()) * 1000)::bigint - p_age_ms;
+begin
+  select secret into k from private.plan_signing_key;
+  return format('select public.save_relocation_plan(%L, %L, %L, %s, %L)', a, plan, 'test', ts,
+    encode(extensions.hmac(convert_to(a::text || '.' || ts || '.test.' || plan, 'UTF8'),
+      convert_to(k, 'UTF8'), 'sha256'), 'hex'));
+end $$;
+
 create or replace function pg_temp.rls_role_access()
 returns table (check_name text, expected text, actual text, pass boolean)
 language plpgsql as $fn$
@@ -105,6 +119,8 @@ begin
     'stored_files', 'select count(*) from storage.objects where bucket_id = ''relocation-documents'' and name like ''%/fx-%''');
 
   begin
+    -- A signing key for this run if the database has none yet (rolled back at the end)
+    insert into private.plan_signing_key (id, secret) values (true, repeat('t', 64)) on conflict (id) do nothing;
     -- Fixtures
     insert into public.rmc_tenants (id, name) values (t2, 'Other Test RMC (fixture)');
     insert into public.client_companies (id, rmc_tenant_id, name) values
@@ -161,8 +177,21 @@ begin
     -- a2 gets its plan through the real save function, run as HR
     insert into public.relocation_plans (assignment_id, rmc_tenant_id, status) values (a2, t1, 'pending');
 
-    got := pg_temp.try_as(hr, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a2, good_plan, 'test'));
-    results := results || jsonb_build_object('c', 'hr_user can save a plan for own company', 'e', 'ok', 'a', got);
+    got := pg_temp.try_as(hr, format('select public.save_relocation_plan(%L, %L, %L, %s, %L)', a2, good_plan, 'test',
+      (extract(epoch from now()) * 1000)::bigint, repeat('0', 64)));
+    results := results || jsonb_build_object('c', 'hr_user cannot save a hand-written (unsigned) plan', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(hr, pg_temp.signed_save(a2, good_plan, 20 * 60000));
+    results := results || jsonb_build_object('c', 'a plan signed 20 minutes ago is refused', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(hr, replace(pg_temp.signed_save(a2, good_plan), 'FX visa', 'FX visa (edited)'));
+    results := results || jsonb_build_object('c', 'a signed plan changed afterwards is refused', 'e', '42501', 'a', got);
+    got := pg_temp.try_as(hr, pg_temp.signed_save(a2, good_plan));
+    results := results || jsonb_build_object('c', 'hr_user can save a server-signed plan for own company', 'e', 'ok', 'a', got);
+    foreach who in array array['rmc_admin', 'consultant', 'hr_user', 'employee', 'vendor'] loop
+      got := pg_temp.try_as((users ->> who)::uuid, 'select count(*) from private.plan_signing_key');
+      results := results || jsonb_build_object('c', who || ' cannot read the plan signing secret', 'e', '42501', 'a', got);
+      got := pg_temp.try_as((users ->> who)::uuid, 'select private.new_plan_signing_secret()');
+      results := results || jsonb_build_object('c', who || ' cannot make a new signing secret', 'e', '42501', 'a', got);
+    end loop;
 
     -- Visibility per role
     for who in select jsonb_object_keys(users) loop
@@ -293,19 +322,19 @@ begin
     results := results || jsonb_build_object('c', 'new request lands in HR''s company with budget and pending plan', 'e', '1', 'a', got);
 
     -- Saving plans: only people who can see the costed plan, never twice, never half-saved
-    got := pg_temp.try_as(hr, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a2, good_plan, 'test'));
+    got := pg_temp.try_as(hr, pg_temp.signed_save(a2, good_plan));
     results := results || jsonb_build_object('c', 'a ready plan cannot be overwritten', 'e', '55000', 'a', got);
     foreach who in array array['employee', 'vendor', 'other_rmc_admin'] loop
-      got := pg_temp.try_as((users ->> who)::uuid, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a1, good_plan, 'test'));
+      got := pg_temp.try_as((users ->> who)::uuid, pg_temp.signed_save(a1, good_plan));
       results := results || jsonb_build_object('c', who || ' cannot save a plan for the demo relocation', 'e', '42501', 'a', got);
       got := pg_temp.try_as((users ->> who)::uuid, format('select public.record_plan_failure(%L, %L)', a1, 'x'));
       results := results || jsonb_build_object('c', who || ' cannot mark the demo plan as failed', 'e', '42501', 'a', got);
     end loop;
-    got := pg_temp.try_as(consultant, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a3, good_plan, 'test'));
+    got := pg_temp.try_as(consultant, pg_temp.signed_save(a3, good_plan));
     results := results || jsonb_build_object('c', 'consultant cannot save a plan for an unallocated relocation', 'e', '42501', 'a', got);
-    got := pg_temp.try_as(hr, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a3, good_plan, 'test'));
+    got := pg_temp.try_as(hr, pg_temp.signed_save(a3, good_plan));
     results := results || jsonb_build_object('c', 'hr_user cannot save a plan for another company', 'e', '42501', 'a', got);
-    got := pg_temp.try_as(admin, format('select public.save_relocation_plan(%L, %L::jsonb, %L)', a3, bad_plan, 'test'));
+    got := pg_temp.try_as(admin, pg_temp.signed_save(a3, bad_plan));
     results := results || jsonb_build_object('c', 'a plan with an unknown dependency is rejected', 'e', '22023', 'a', got);
     select count(*)::text into got from public.plan_services where assignment_id = a3 and service_key = 'fx_b';
     results := results || jsonb_build_object('c', 'a rejected plan leaves nothing behind', 'e', '0', 'a', got);

@@ -10,12 +10,15 @@ clients' data** yet — the list at the end says what that needs.
 - **Everyone sees only their own slice.** All 17 tables have database-level rules
   (row level security). RMC admin sees their RMC; consultant only relocations given to
   them; HR only their company; the employee only their own journey (never money); a
-  vendor only its own work orders and invoices. **302 database checks** prove this, role by
+  vendor only its own work orders and invoices. **315 database checks** prove this, role by
   role, including a second made-up RMC that must stay invisible.
 - **Nobody can change data directly.** Every change goes through a small number of
   checked database routines (create request, save plan, pick provider, approve, send work
   order, record/decide invoice, tick a to-do, register a document). Each one checks who is
   calling. Prices always come from the rate card; invoice matching happens in the database.
+- **Only the app's server can save AI plans.** Each plan carries a signature made with a
+  secret held only by the server and the database; hand-written, altered or old (10+ minute)
+  plans are refused, whoever sends them.
 - **People approve before money moves.** Flagged services need the RMC admin's approval
   before a work order goes out; flagged invoices need the admin's decision with a reason.
 - **Provider links are safe.** Each link is 256-bit random, expires after 60 days, can be
@@ -29,8 +32,9 @@ clients' data** yet — the list at the end says what that needs.
   none reaching the browser. `npm audit`: 0 vulnerabilities.
 - **Browser protections** on every page (content security policy, no embedding in other
   sites, login cookies unreadable by scripts). Public sign-up is switched off.
-- **Tests:** 108 code tests, 50+ API tests, 47 browser tests — all passing on GitHub on
-  every change. Plus 302 database checks run at each session.
+- **Tests:** 113 code tests, 50+ API tests, 47 browser tests — all running on GitHub on
+  every change, against a **separate test database** ("Relo OS Test"), never the live demo.
+  Plus 315 database checks run at each session.
 
 ## Security Advisor findings (Supabase)
 - *Signed-in users can run 17 database routines; 4 portal routines work without signing
@@ -39,10 +43,10 @@ clients' data** yet — the list at the end says what that needs.
 - Everything else it raised during the build (a missing search-path setting) was fixed.
 
 ## Not production-ready yet (fine for a demo, not for real clients)
-1. **HR could save a hand-written plan** for their own company's relocation by calling
-   the database directly (not anyone else's). Fix is ready to build — see "Decisions".
-2. **Tests run against the same Supabase project as the demo** (in a separate test-only
-   RMC that is wiped each run). Real clients need a separate project for testing.
+1. *(Fixed 23 Sep)* ~~HR could save a hand-written plan~~ — plans are now signed by the server.
+2. *(Fixed 23 Sep)* ~~Tests ran against the demo database~~ — they now use "Relo OS Test".
+   The old test-only RMC and its three test logins are still in the demo database; they can
+   be removed once the new setup has run green for a while.
 3. **No admin screens** to add users, vendors or rate cards, allocate consultants, or edit
    the policy — today these are loaded by script.
 4. **Logins:** password only, no two-step login, no "forgot password", leaked-password
@@ -65,7 +69,7 @@ clients' data** yet — the list at the end says what that needs.
 - **Delete all demo and test accounts and data** from that project; create real accounts
   through a proper admin screen.
 - **Two-step login** for RMC staff and HR, a password-reset flow, and leaked-password protection.
-- **Fix item 1** (plan saving) and add a full **activity log** of who changed what.
+- A full **activity log** of who changed what.
 - A **privacy policy, terms and data processing agreement** with each RMC (India's DPDP Act;
   GDPR if EU employees), plus rules for how long data is kept and how it is deleted.
 - **Virus scanning** for uploads, **error monitoring and alerts**, and paid hosting plans.

@@ -2,6 +2,14 @@
 
 About 15 minutes. You click; nothing here needs code.
 
+## 0. Make the plan signing secret (once)
+The app signs every AI plan so nobody can save a hand-written one. The live database and
+Vercel share one secret:
+1. Supabase → project **Relo OS** → **SQL Editor** → **New query**.
+2. Paste `select private.new_plan_signing_secret();` and click **Run**.
+3. Copy the long value it shows. It goes into Vercel as `PLAN_SIGNING_SECRET` (step 2).
+   Don't paste it anywhere else. Running it again makes a new one (then update Vercel too).
+
 ## 1. Import the project
 1. Go to vercel.com, sign in with GitHub.
 2. **Add New… → Project**, choose **nikhin2812/Relo-OS**, click **Import**
@@ -14,6 +22,7 @@ About 15 minutes. You click; nothing here needs code.
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://kevwftukmiwpekbuoera.supabase.co` | Yes |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_5hifOdenFS0mfQgxa9JMWg_0ZVAB93f` | Yes |
 | `NEXT_PUBLIC_APP_URL` | your site address, e.g. `https://relo-os.yourdomain.com` (no slash at the end) | Yes |
+| `PLAN_SIGNING_SECRET` | from step 0 below | Yes (without it, new plans can't be saved) |
 | `ANTHROPIC_API_KEY` | your Anthropic key | For AI plans on new requests |
 | `RESEND_API_KEY` | your Resend key | For emailing providers |
 | `EMAIL_FROM` | e.g. `Relo OS <workorders@yourdomain.com>` (a domain verified in Resend) | With Resend |

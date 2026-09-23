@@ -12,6 +12,8 @@ env:
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+  # Server-only secret that signs AI plans; must match the test database's signing key.
+  PLAN_SIGNING_SECRET: ${{ secrets.PLAN_SIGNING_SECRET }}
   # Optional: when set, one live AI planning check runs; otherwise it is skipped.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -28,9 +30,13 @@ jobs:
       - run: npm ci
       - name: Check required secrets are set
         run: |
-          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY DEMO_PASSWORD; do
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY DEMO_PASSWORD PLAN_SIGNING_SECRET; do
             if [ -z "${!v}" ]; then echo "::error::Repository secret $v is missing"; exit 1; fi
           done
+          # Tests write data, so they must run against the separate test database, never the live demo.
+          case "$NEXT_PUBLIC_SUPABASE_URL" in
+            *kevwftukmiwpekbuoera*) echo "::error::CI is pointed at the live demo database. Use the Relo OS Test project."; exit 1;;
+          esac
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

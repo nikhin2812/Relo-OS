@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { PlannerError, requestPlan } from "./client";
 import { applyPolicy } from "./policy";
 import type { PlanningRequest, PolicyConfig } from "./schema";
+import { planSigningSecret, signPlan } from "./signing";
 import { validatePlan } from "./validate";
 
 export type GenerateResult = { ok: true } | { ok: false; message: string };
@@ -37,16 +38,27 @@ export async function generatePlan(supabase: SupabaseClient, assignmentId: strin
   };
   const policy = policyRow.config as PolicyConfig;
 
+  const secret = planSigningSecret();
+  if (!secret) {
+    console.error("PLAN_SIGNING_SECRET is not set; plans cannot be saved.");
+    const message = "Plan saving isn't switched on yet. Please contact your administrator.";
+    await supabase.rpc("record_plan_failure", { p_assignment_id: assignmentId, p_message: message });
+    return { ok: false, message };
+  }
+
   let message: string;
   try {
     const response = await requestPlan(request, policy);
     const checked = validatePlan(response.text, request);
     if (checked.ok) {
-      const plan = applyPolicy(checked.plan, policy, request.familySize);
+      const planText = JSON.stringify(applyPolicy(checked.plan, policy, request.familySize));
+      const { signedAt, signature } = signPlan(secret, assignmentId, planText, response.model);
       const { error } = await supabase.rpc("save_relocation_plan", {
         p_assignment_id: assignmentId,
-        p_plan: plan,
+        p_plan: planText,
         p_model: response.model,
+        p_signed_at: signedAt,
+        p_signature: signature,
       });
       if (!error) return { ok: true };
       message = error.code === "55000" ? "This relocation already has a plan." : "The plan could not be saved. Please try again.";
