@@ -160,12 +160,16 @@ suite("role access through the API", () => {
     expect(r.documents.every((d) => d.assignment_id === DEMO_ASSIGNMENT)).toBe(true);
   });
 
-  it("vendor sees no relocations, money or plans", () => {
+  it("vendor sees no relocations, budgets or plans — only its own work orders and invoices", () => {
     const r = rows.vendor;
-    for (const table of TABLES.filter((t) => t !== "rmc_tenants" && t !== "profiles" && t !== "vendors")) {
+    const own = ["rmc_tenants", "profiles", "vendors", "work_orders", "invoices"];
+    for (const table of TABLES.filter((t) => !own.includes(t))) {
       expect(r[table], table).toHaveLength(0);
     }
     expect(r.profiles).toHaveLength(1);
+    expect(r.work_orders.length).toBeGreaterThan(0); // the demo has Skyline booked
+    expect(r.work_orders.every((w) => w.vendor_id === SKYLINE)).toBe(true);
+    expect(r.invoices.every((i) => i.vendor_id === SKYLINE)).toBe(true);
   });
 
   it("the automated-test HR user can't see anything from the demo RMC", () => {
