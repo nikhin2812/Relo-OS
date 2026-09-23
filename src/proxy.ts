@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { supabaseEnv } from "@/lib/env";
+import { authCookieOptions } from "@/lib/supabase/cookies";
 
 const PUBLIC_PATHS = ["/login", "/portal/"];
 
@@ -11,6 +12,7 @@ export async function proxy(request: NextRequest) {
   const { url, anonKey } = supabaseEnv();
 
   const supabase = createServerClient(url, anonKey, {
+    cookieOptions: authCookieOptions,
     cookies: {
       getAll() {
         return request.cookies.getAll();

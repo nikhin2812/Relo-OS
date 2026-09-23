@@ -38,6 +38,6 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
     // Tests use a stand-in for the AI planner: free and the same every run.
-    env: { PLANNER_MODE: "mock" },
+    env: { PLANNER_MODE: "mock", PLAYWRIGHT_HTTP: "1" },
   },
 });

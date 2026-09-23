@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 import { supabaseEnv } from "@/lib/env";
+import { authCookieOptions } from "@/lib/supabase/cookies";
 
 // A Supabase client acting as the logged-in user, so every query goes
 // through row level security.
@@ -10,6 +11,7 @@ export async function createClient() {
   const { url, anonKey } = supabaseEnv();
 
   return createServerClient(url, anonKey, {
+    cookieOptions: authCookieOptions,
     cookies: {
       getAll() {
         return cookieStore.getAll();
