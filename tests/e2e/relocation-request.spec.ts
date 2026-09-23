@@ -1,26 +1,12 @@
 // MVP items 1 and 2: HR creates a relocation request and gets an AI plan.
 // Runs as the HR user of a separate test-only RMC, with the AI planner
 // replaced by a stand-in (PLANNER_MODE=mock), so the demo data is untouched.
-import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 
-import { TEST_HR_EMAIL, demoPassword } from "../demo-users";
+import { TEST_HR_EMAIL } from "../demo-users";
 import { signInAs, signInWithEmail } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
-
-async function clearTestRmc() {
-  const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    auth: { persistSession: false },
-  });
-  const { error: signInError } = await client.auth.signInWithPassword({ email: TEST_HR_EMAIL, password: demoPassword() });
-  if (signInError) throw signInError;
-  const { error } = await client.rpc("reset_test_tenant_data");
-  if (error) throw error;
-}
-
-test.beforeAll(clearTestRmc);
-test.afterAll(clearTestRmc);
 
 function inDays(days: number): string {
   const d = new Date();

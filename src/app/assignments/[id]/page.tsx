@@ -5,11 +5,14 @@ import { PolicyBadge } from "@/components/policy-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
 import { formatDate, formatINR } from "@/lib/format";
-import { planTotals } from "@/lib/planner/policy";
+import { planTotals, policyCap } from "@/lib/planner/policy";
+import type { PolicyConfig } from "@/lib/planner/schema";
+import { providerOptions, type Vendor, type VendorRate } from "@/lib/providers";
 import { canSeeBudgets } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/server";
 
 import { GeneratePlanButton } from "./generate-button";
+import { ProviderPicker } from "./provider-picker";
 
 export const maxDuration = 180;
 
@@ -28,6 +31,9 @@ type ServiceRow = {
   policy_note: string;
   approval_required: boolean;
   approval_reason: string;
+  selected_vendor_id: string | null;
+  agreed_cost: number | null;
+  agreed_over_cap: boolean;
 };
 
 export default async function AssignmentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -45,13 +51,18 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   if (!assignment) notFound();
 
   const costed = canSeeBudgets(user.role);
-  const [budgetRes, planRes, servicesRes, milestonesRes] = await Promise.all([
+  const picksProviders = user.role === "rmc_admin" || user.role === "consultant";
+  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes] = await Promise.all([
     costed ? supabase.from("assignment_budgets").select("amount").eq("assignment_id", id).maybeSingle() : null,
     costed ? supabase.from("relocation_plans").select("status, summary, error_message, model").eq("assignment_id", id).maybeSingle() : null,
     costed
       ? supabase.from("plan_services").select("*").eq("assignment_id", id).order("sequence").order("start_date").returns<ServiceRow[]>()
       : null,
     supabase.from("plan_milestones").select("id, title, due_date, sequence").eq("assignment_id", id).order("sequence"),
+    // RLS: RMC staff see the whole network; HR sees only vendors chosen for its company.
+    costed ? supabase.from("vendors").select("id, name, city").returns<Vendor[]>() : null,
+    picksProviders ? supabase.from("vendor_rates").select("vendor_id, category, rate, rate_basis, description").returns<VendorRate[]>() : null,
+    picksProviders ? supabase.from("rmc_policies").select("config").maybeSingle() : null,
   ]);
 
   const budget = budgetRes?.data ? Number(budgetRes.data.amount) : null;
@@ -61,6 +72,10 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const titles = new Map(services.map((s) => [s.service_key, s.title]));
   const totals = budget !== null && services.length > 0 ? planTotals(services, budget) : null;
   const company = assignment.client_companies as unknown as { name: string } | null;
+  const vendors = vendorsRes?.data ?? [];
+  const vendorNames = new Map(vendors.map((v) => [v.id, v.name]));
+  const rates = ratesRes?.data ?? [];
+  const policy = (policyRes?.data?.config ?? {}) as PolicyConfig;
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-8">
@@ -99,7 +114,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             )}
 
             {totals && (
-              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4" data-testid="plan-totals">
+              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5" data-testid="plan-totals">
                 <div>
                   <dt className="text-neutral-500">Budget</dt>
                   <dd className="text-lg font-semibold" data-testid="budget">{formatINR(totals.budget)}</dd>
@@ -109,7 +124,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                   <dd className="text-lg font-semibold" data-testid="estimated-total">{formatINR(totals.total)}</dd>
                 </div>
                 <div>
-                  <dt className="text-neutral-500">{totals.overBudget ? "Over budget by" : "Remaining"}</dt>
+                  <dt className="text-neutral-500">Committed with providers</dt>
+                  <dd className="text-lg font-semibold" data-testid="committed">{formatINR(totals.committed)}</dd>
+                </div>
+                <div>
+                  <dt className="text-neutral-500">{totals.overBudget ? "Forecast over budget by" : "Forecast remaining"}</dt>
                   <dd className={totals.overBudget ? "text-lg font-semibold text-red-700" : "text-lg font-semibold"} data-testid="remaining">
                     {formatINR(Math.abs(totals.remaining))}
                   </dd>
@@ -132,7 +151,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <PolicyBadge status={s.policy_status} />
-                        {s.approval_required && (
+                        {(s.approval_required || s.agreed_over_cap) && (
                           <span className="inline-flex rounded-full border border-neutral-300 px-2 py-0.5 text-xs font-medium" data-testid="approval-required">
                             Needs approval
                           </span>
@@ -151,6 +170,31 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                         {s.approval_required && s.approval_reason && s.approval_reason !== s.policy_note ? ` ${s.approval_reason}` : ""}
                       </p>
                     )}
+                    <div className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3" data-testid="provider">
+                      {s.selected_vendor_id && s.agreed_cost !== null && (
+                        <p className="text-sm" data-testid="selected-provider">
+                          Provider: <span className="font-medium">{vendorNames.get(s.selected_vendor_id) ?? "Chosen vendor"}</span> · agreed{" "}
+                          <span className="font-medium" data-testid="agreed-cost">{formatINR(s.agreed_cost)}</span>
+                          {s.agreed_over_cap && (
+                            <span className="text-red-700" data-testid="agreed-over-cap">
+                              {" "}· agreed rate is above the policy cap, needs approval
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {!s.selected_vendor_id && !picksProviders && (
+                        <p className="text-sm text-neutral-500">Provider not chosen yet.</p>
+                      )}
+                      {picksProviders && (
+                        <ProviderPicker
+                          assignmentId={assignment.id}
+                          serviceId={s.id}
+                          serviceTitle={s.title}
+                          selectedVendorId={s.selected_vendor_id}
+                          options={providerOptions(s.category, rates, vendors, assignment.family_size, policyCap(s, policy, assignment.family_size))}
+                        />
+                      )}
+                    </div>
                   </li>
                 ))}
               </ol>

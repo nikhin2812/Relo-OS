@@ -15,7 +15,7 @@ function join(existing: string, extra: string): string {
 }
 
 // The cap that applies to a service, or null when the policy sets none.
-export function policyCap(service: PlanService, policy: PolicyConfig, familySize: number): number | null {
+export function policyCap(service: Pick<PlanService, "category"> | { category: string }, policy: PolicyConfig, familySize: number): number | null {
   const rule = policy.services?.[service.category as keyof NonNullable<PolicyConfig["services"]>];
   if (!rule) return null;
   if (typeof rule.max_cost_per_person === "number") return rule.max_cost_per_person * familySize;
@@ -52,25 +52,44 @@ export function applyPolicy(plan: PlannerOutput, policy: PolicyConfig, familySiz
 }
 
 export type PlanTotals = {
+  /** Sum of the AI's estimates for every service. */
   total: number;
+  /** Sum of agreed costs for services with a provider chosen. */
+  committed: number;
+  /** Agreed cost where chosen, estimate otherwise. */
+  forecast: number;
   budget: number;
+  /** Budget minus forecast. Negative when over budget. */
   remaining: number;
   overBudget: boolean;
   approvalsNeeded: number;
 };
 
-export function planTotals(
-  services: Pick<PlanService, "estimated_cost" | "approval_required">[],
-  budget: number,
-): PlanTotals {
+type TotalsInput = Pick<PlanService, "estimated_cost" | "approval_required"> & {
+  agreed_cost?: number | null;
+  agreed_over_cap?: boolean;
+};
+
+export function planTotals(services: TotalsInput[], budget: number): PlanTotals {
   // Work in paise to avoid floating-point drift.
-  const totalPaise = services.reduce((sum, s) => sum + Math.round(Number(s.estimated_cost) * 100), 0);
-  const budgetPaise = Math.round(budget * 100);
+  const paise = (n: number | null | undefined) => Math.round(Number(n ?? 0) * 100);
+  let total = 0;
+  let committed = 0;
+  let forecast = 0;
+  for (const s of services) {
+    const chosen = s.agreed_cost !== null && s.agreed_cost !== undefined;
+    total += paise(s.estimated_cost);
+    if (chosen) committed += paise(s.agreed_cost);
+    forecast += chosen ? paise(s.agreed_cost) : paise(s.estimated_cost);
+  }
+  const budgetPaise = paise(budget);
   return {
-    total: totalPaise / 100,
+    total: total / 100,
+    committed: committed / 100,
+    forecast: forecast / 100,
     budget: budgetPaise / 100,
-    remaining: (budgetPaise - totalPaise) / 100,
-    overBudget: totalPaise > budgetPaise,
-    approvalsNeeded: services.filter((s) => s.approval_required).length,
+    remaining: (budgetPaise - forecast) / 100,
+    overBudget: forecast > budgetPaise,
+    approvalsNeeded: services.filter((s) => s.approval_required || s.agreed_over_cap).length,
   };
 }

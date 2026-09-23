@@ -8,6 +8,9 @@ const PORT = 3100;
 
 export default defineConfig({
   testDir: "tests/e2e",
+  // Empty the test-only RMC before and after the run (never the demo).
+  globalSetup: "./tests/e2e/test-rmc.ts",
+  globalTeardown: "./tests/e2e/test-rmc.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

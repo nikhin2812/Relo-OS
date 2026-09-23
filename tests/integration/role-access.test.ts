@@ -20,6 +20,12 @@ const suite = configured || process.env.CI ? describe : describe.skip;
 
 const DEMO_ASSIGNMENT = "40000000-0000-0000-0000-000000000001";
 const DEMO_TENANT = "10000000-0000-0000-0000-000000000001";
+const DEMO_VENDOR_IDS = [
+  "50000000-0000-0000-0000-000000000001",
+  "50000000-0000-0000-0000-000000000002",
+  "50000000-0000-0000-0000-000000000003",
+];
+const SKYLINE = "50000000-0000-0000-0000-000000000002";
 
 const TABLES = [
   "rmc_tenants",
@@ -32,6 +38,8 @@ const TABLES = [
   "relocation_plans",
   "plan_services",
   "plan_milestones",
+  "vendors",
+  "vendor_rates",
 ] as const;
 type Table = (typeof TABLES)[number];
 
@@ -81,6 +89,26 @@ suite("role access through the API", () => {
     expect(r.rmc_policies).toHaveLength(1);
   });
 
+  it("RMC staff see the whole vendor network and rate cards", () => {
+    for (const role of ["rmc_admin", "consultant"] as Role[]) {
+      const ids = rows[role].vendors.map((v) => v.id);
+      for (const id of DEMO_VENDOR_IDS) expect(ids, role).toContain(id);
+      expect(rows[role].vendor_rates.length, role).toBeGreaterThanOrEqual(9);
+      expect(rows[role].vendors.every((v) => v.rmc_tenant_id === DEMO_TENANT), role).toBe(true);
+    }
+  });
+
+  it("HR sees only vendors chosen for its relocations, and no rate cards", () => {
+    const chosen = new Set(rows.hr_user.plan_services.map((s) => s.selected_vendor_id).filter(Boolean));
+    expect(rows.hr_user.vendors.every((v) => chosen.has(v.id))).toBe(true);
+    expect(rows.hr_user.vendor_rates).toHaveLength(0);
+  });
+
+  it("the vendor sees only its own company and no rate cards", () => {
+    expect(rows.vendor.vendors.map((v) => v.id)).toEqual([SKYLINE]);
+    expect(rows.vendor.vendor_rates).toHaveLength(0);
+  });
+
   it("consultant sees only the relocation allocated to them", () => {
     const r = rows.consultant;
     expect(r.assignments.map((a) => a.id)).toEqual([DEMO_ASSIGNMENT]);
@@ -107,12 +135,14 @@ suite("role access through the API", () => {
     expect(r.rmc_policies).toHaveLength(0);
     expect(r.relocation_plans).toHaveLength(0);
     expect(r.plan_services).toHaveLength(0);
+    expect(r.vendors).toHaveLength(0);
+    expect(r.vendor_rates).toHaveLength(0);
     expect(r.plan_milestones.every((m) => m.assignment_id === DEMO_ASSIGNMENT)).toBe(true);
   });
 
   it("vendor sees no relocations, money or plans", () => {
     const r = rows.vendor;
-    for (const table of TABLES.filter((t) => t !== "rmc_tenants" && t !== "profiles")) {
+    for (const table of TABLES.filter((t) => t !== "rmc_tenants" && t !== "profiles" && t !== "vendors")) {
       expect(r[table], table).toHaveLength(0);
     }
     expect(r.profiles).toHaveLength(1);
@@ -155,6 +185,18 @@ suite("role access through the API", () => {
         p_assignment_id: DEMO_ASSIGNMENT,
         p_plan: { summary: "x", services: [], milestones: [] },
         p_model: "x",
+      });
+      expect(error?.code).toBe("42501");
+    });
+  }
+
+  for (const role of ["hr_user", "employee", "vendor"] as Role[]) {
+    it(`${role} cannot choose providers`, async () => {
+      const service = rows.rmc_admin.plan_services.find((s) => s.assignment_id === DEMO_ASSIGNMENT);
+      expect(service).toBeDefined();
+      const { error } = await clients[role].rpc("select_service_provider", {
+        p_service_id: service!.id,
+        p_vendor_id: SKYLINE,
       });
       expect(error?.code).toBe("42501");
     });

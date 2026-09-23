@@ -44,16 +44,34 @@
 - CI green on GitHub (all unit, API role and 13 Playwright tests). Live AI check skipped
   until the `ANTHROPIC_API_KEY` secret is added.
 
+### Session 3 — Services, policy and providers (23 Sep 2026)
+- New tables (RLS on both): `vendors` (the RMC's vendor network) and `vendor_rates` (agreed
+  rate per vendor per service type, per family or per person). Vendor logins are linked to
+  their vendor company (`profiles.vendor_id`).
+- Who sees what: RMC admin and consultants see the network and rate cards; HR sees only the
+  names of vendors chosen for its own relocations and never rate cards; vendors see only their
+  own company; employees see none of it.
+- `plan_services` now stores the chosen provider, the agreed cost and whether that cost is
+  above the policy cap. Written only through `select_service_provider` (RMC admin or allocated
+  consultant; price always comes from the rate card, never from the caller).
+- Plan page: per-service provider picker (cheapest first, "over policy cap" marked), chosen
+  provider and agreed cost, totals now show estimate, committed and forecast remaining.
+- Demo data: three fictional vendors (Falcon Relocation Services, Skyline Moves & Travel,
+  Palm Stay Apartments) with rates; demo vendor login = Skyline. The demo relocation has the
+  fixed sample plan (labelled "Sample plan") so providers can be picked before the AI key is in.
+- Tests: 139 database checks (all pass), 61 unit tests (all pass), API role tests for vendors
+  and rate cards, Playwright provider-picking flow in the test-only RMC.
+
 ## Next
-- Session 3: services, policy and providers (MVP items 3, 4, 5).
+- Session 4: the employee journey and documents (MVP items 6 and 7).
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
   and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
   "AI planning isn't switched on yet" and keeps the request.
-- Security Advisor warns that signed-in users can run 4 database functions
+- Security Advisor warns that signed-in users can run 5 database functions
   (`create_relocation_request`, `save_relocation_plan`, `record_plan_failure`,
-  `reset_test_tenant_data`). Intended: they are the only write paths and each checks the
+  `reset_test_tenant_data`, `select_service_provider`). Intended: they are the only write paths and each checks the
   caller; the database tests prove it.
 - `save_relocation_plan` is callable by HR directly through the API, so a technically skilled
   HR user could submit a hand-written plan for their own company's relocation (not anyone
