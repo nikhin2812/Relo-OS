@@ -12,6 +12,8 @@ env:
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+  # Optional: when set, one live AI planning check runs; otherwise it is skipped.
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
 jobs:
   checks:

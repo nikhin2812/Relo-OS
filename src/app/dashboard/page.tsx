@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
@@ -48,11 +50,18 @@ export default async function DashboardPage() {
             Signed in as {user.fullName} · <span data-testid="role">{ROLE_LABELS[user.role]}</span>
           </p>
         </div>
-        <form action={logout}>
-          <Button variant="outline" type="submit">
-            Sign out
-          </Button>
-        </form>
+        <div className="flex items-center gap-2">
+          {user.role === "hr_user" && (
+            <Button asChild>
+              <Link href="/requests/new">New relocation request</Link>
+            </Button>
+          )}
+          <form action={logout}>
+            <Button variant="outline" type="submit">
+              Sign out
+            </Button>
+          </form>
+        </div>
       </header>
 
       {user.role === "vendor" && (
@@ -74,7 +83,9 @@ export default async function DashboardPage() {
             <Card data-testid="assignment-card">
               <CardHeader>
                 <CardTitle>
-                  {a.origin} → {a.destination}
+                  <Link href={`/assignments/${a.id}`} className="hover:underline">
+                    {a.origin} → {a.destination}
+                  </Link>
                 </CardTitle>
                 <CardDescription>
                   {a.employee_name} · family of {a.family_size}
@@ -89,7 +100,7 @@ export default async function DashboardPage() {
                   </div>
                   <div>
                     <dt className="text-neutral-500">Status</dt>
-                    <dd className="capitalize">{a.status.replace("_", " ")}</dd>
+                    <dd className="capitalize" data-testid="status">{a.status.replace("_", " ")}</dd>
                   </div>
                   {showBudgets && budgets.has(a.id) && (
                     <div>

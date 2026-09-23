@@ -1,18 +1,20 @@
 // Clicks through the real login as each of the five roles and checks the
 // screen shows only what spec section 3 allows.
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { signInAs } from "./helpers";
 
 const DEMO_TRIP = "Bengaluru, India → Dubai, UAE";
+// Demo HR may have created more relocations, so admin/HR checks look at the demo card.
+const demoCard = (page: Page) => page.getByTestId("assignment-card").filter({ hasText: "Eshan Employee (Demo)" });
 
 test("RMC admin sees the demo relocation with its budget", async ({ page }) => {
   await signInAs(page, "rmc_admin");
   await expect(page.getByTestId("role")).toHaveText("RMC admin");
   await expect(page.getByText("Demo Mobility Partners")).toBeVisible();
-  await expect(page.getByTestId("assignment-card")).toHaveCount(1);
-  await expect(page.getByText(DEMO_TRIP)).toBeVisible();
-  await expect(page.getByTestId("budget")).toHaveText("₹15,00,000");
+  await expect(demoCard(page)).toHaveCount(1);
+  await expect(demoCard(page)).toContainText(DEMO_TRIP);
+  await expect(demoCard(page).getByTestId("budget")).toHaveText("₹15,00,000");
 });
 
 test("consultant sees only the relocation allocated to them", async ({ page }) => {
@@ -26,9 +28,9 @@ test("consultant sees only the relocation allocated to them", async ({ page }) =
 test("HR sees their company's relocation and budget", async ({ page }) => {
   await signInAs(page, "hr_user");
   await expect(page.getByTestId("role")).toHaveText("HR");
-  await expect(page.getByTestId("assignment-card")).toHaveCount(1);
-  await expect(page.getByText("Fictional Tech Pvt Ltd (Demo)")).toBeVisible();
-  await expect(page.getByTestId("budget")).toHaveText("₹15,00,000");
+  await expect(demoCard(page)).toHaveCount(1);
+  await expect(demoCard(page)).toContainText("Fictional Tech Pvt Ltd (Demo)");
+  await expect(demoCard(page).getByTestId("budget")).toHaveText("₹15,00,000");
 });
 
 test("employee sees their own relocation and no money figures", async ({ page }) => {

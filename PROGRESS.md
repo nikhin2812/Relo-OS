@@ -23,14 +23,40 @@
 - GitHub Actions (`.github/workflows/ci.yml`): lint, types, unit + role tests, `npm audit`,
   then Playwright.
 
+### Session 2 — Relocation request and AI plan (23 Sep 2026)
+- New tables (RLS on all): `rmc_policies`, `relocation_plans`, `plan_services`,
+  `plan_milestones`. Costs, policy and plan status are visible only to the RMC admin, the
+  allocated consultant and HR at the client company. Employees see their own milestones only.
+- Write paths are three checked database functions: `create_relocation_request` (HR only,
+  always into HR's own company), `save_relocation_plan` (all-or-nothing, never overwrites a
+  ready plan), `record_plan_failure`. Plus `reset_test_tenant_data`, which only works inside
+  the "Automated Test RMC" (a separate test-only tenant; the demo is never touched by tests).
+- HR form at `/requests/new`; plan page at `/assignments/[id]` with steps, dependencies,
+  dates, cost per service, policy badge, "Needs approval", totals against budget, milestones.
+- AI planner (`src/lib/planner/`): Claude Opus 5 via the Anthropic SDK with structured output
+  and automatic refusal fallback. Model can be changed with `PLANNER_MODEL`. Every answer is
+  checked (JSON shape, dates, costs, dependency order) before saving, and policy caps are
+  re-checked in code. Failures keep the request and show a "Try again" button.
+- Demo policy for Demo Mobility Partners (caps per service, 30-day housing limit).
+- Tests: 112 database checks (all pass), 50 unit tests (all pass), API role tests for all new
+  tables, Playwright flow tests (request → plan, failure → retry, validation, HR-only form,
+  employee sees no costs). Browser tests use a stand-in planner (`PLANNER_MODE=mock`).
+
 ## Next
-- Session 2: HR relocation request + AI plan (MVP items 1 and 2).
+- Session 3: services, policy and providers (MVP items 3, 4, 5).
 
 ## Known issues / to do
+- **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
+  and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
+  "AI planning isn't switched on yet" and keeps the request.
+- Security Advisor warns that signed-in users can run 4 database functions
+  (`create_relocation_request`, `save_relocation_plan`, `record_plan_failure`,
+  `reset_test_tenant_data`). Intended: they are the only write paths and each checks the
+  caller; the database tests prove it.
+- `save_relocation_plan` is callable by HR directly through the API, so a technically skilled
+  HR user could submit a hand-written plan for their own company's relocation (not anyone
+  else's). Before real clients: move plan saving behind a server-only key.
+- Leaked password protection needs a paid Supabase plan — deferred by owner.
 - The cloud workspace's network blocks Supabase, so login tests only run in GitHub
   Actions (repo secrets are set). CI is green as of commit after 0951f55.
-- Supabase Security Advisor: "Leaked password protection disabled" (warning). Turn on in
-  Supabase → Authentication → Settings before launch (may need a paid plan).
-- Turn off public sign-ups in Supabase → Authentication → Sign In / Providers
-  (accounts are created by the RMC, not self-registered). A self-registered user
-  currently gets no profile and therefore sees nothing, but should not exist at all.
+- Public sign-ups turned off by owner (23 Sep).

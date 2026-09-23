@@ -13,3 +13,6 @@ export function demoPassword(): string {
   if (!pw) throw new Error("DEMO_PASSWORD must be set to run these tests");
   return pw;
 }
+
+// HR user in a separate test-only RMC, used by tests that create data.
+export const TEST_HR_EMAIL = "e2e-hr@test.relo-os.test";
