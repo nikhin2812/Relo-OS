@@ -141,6 +141,11 @@
   for invoices; Playwright: demo flag check, and in the test RMC the provider invoices 8% over
   → flagged → admin disputes with a note → corrected invoice matches → staff record an emailed
   invoice inside the tolerance → HR overview and CSV.
+- CI green (44 browser tests). Fixed on the way: the flag list in the matching function was
+  built wrongly (caught while loading the demo; fixed in a follow-up migration); tests updated
+  for the demo vendor now having work orders and the portal's second upload box. One browser
+  step ("HR creates a request") has passed only on retry twice across all runs; it now reports
+  the page state if it fails again so the cause can be found.
 
 ## Next
 - Session 7: security pass, deploy to Vercel, demo logins, launch report.
@@ -149,7 +154,7 @@
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
   and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
   "AI planning isn't switched on yet" and keeps the request.
-- Security Advisor also lists the three `portal_*` functions as callable without signing in.
+- Security Advisor also lists the four `portal_*` functions as callable without signing in.
   Intended: they are the account-free provider portal and each one checks the link.
 - Real email needs a Resend account: add `RESEND_API_KEY` and `EMAIL_FROM` (Session 7).
 - Security Advisor warns that signed-in users can run several database functions
@@ -168,3 +173,7 @@
 - The cloud workspace's network blocks Supabase, so login tests only run in GitHub
   Actions (repo secrets are set). CI is green as of commit after 0951f55.
 - Public sign-ups turned off by owner (23 Sep).
+
+- Demo invoice INV-SKY-2291 is meant to stay "Flagged" for the demo recording. Approving or
+  disputing it in the demo changes that (the tests allow for it, but the recording won't show
+  the review buttons).
