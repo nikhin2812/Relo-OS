@@ -17,6 +17,8 @@ import { buildJourney, taskProgress, type JourneyService, type JourneyTask } fro
 import { DocumentUpload } from "./document-upload";
 import { GeneratePlanButton } from "./generate-button";
 import { TaskToggle } from "./task-toggle";
+import { ApproveButton, WorkOrderPanel } from "./work-order-controls";
+import { EMPLOYEE_STATUS_LABELS, STAFF_STATUS_LABELS, isLiveWorkOrder, type WorkOrderStatus } from "@/lib/work-orders";
 import { ProviderPicker } from "./provider-picker";
 
 export const maxDuration = 180;
@@ -39,6 +41,18 @@ type ServiceRow = {
   selected_vendor_id: string | null;
   agreed_cost: number | null;
   agreed_over_cap: boolean;
+  approved_at: string | null;
+};
+
+type WorkOrderRow = {
+  id: string;
+  reference: string;
+  service_id: string;
+  status: WorkOrderStatus;
+  booking_reference: string | null;
+  booked_for: string | null;
+  vendor_note: string | null;
+  sent_at: string;
 };
 
 export default async function AssignmentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -57,7 +71,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
   const costed = canSeeBudgets(user.role);
   const picksProviders = user.role === "rmc_admin" || user.role === "consultant";
-  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes, journeyRes, tasksRes, docsRes] = await Promise.all([
+  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes, journeyRes, tasksRes, docsRes, workOrdersRes] = await Promise.all([
     costed ? supabase.from("assignment_budgets").select("amount").eq("assignment_id", id).maybeSingle() : null,
     costed ? supabase.from("relocation_plans").select("status, summary, error_message, model").eq("assignment_id", id).maybeSingle() : null,
     costed
@@ -71,7 +85,15 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     // The journey: services without money, to-dos and documents (everyone who can see the relocation except vendors)
     supabase.rpc("journey_services", { p_assignment_id: id }),
     supabase.from("journey_tasks").select("id, title, due_date, status, service_key").eq("assignment_id", id).order("due_date").returns<JourneyTask[]>(),
-    supabase.from("documents").select("id, kind, file_name, created_at, service_id").eq("assignment_id", id).order("created_at", { ascending: false }),
+    supabase.from("documents").select("id, kind, file_name, created_at, service_id, source").eq("assignment_id", id).order("created_at", { ascending: false }),
+    costed
+      ? supabase
+          .from("work_orders")
+          .select("id, reference, service_id, status, booking_reference, booked_for, vendor_note, sent_at")
+          .eq("assignment_id", id)
+          .order("sent_at", { ascending: false })
+          .returns<WorkOrderRow[]>()
+      : null,
   ]);
 
   const budget = budgetRes?.data ? Number(budgetRes.data.amount) : null;
@@ -79,7 +101,16 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const services = servicesRes?.data ?? [];
   const milestones = milestonesRes.data ?? [];
   const titles = new Map(services.map((s) => [s.service_key, s.title]));
-  const totals = budget !== null && services.length > 0 ? planTotals(services, budget) : null;
+  // The latest work order per service (a declined one can be followed by a new one).
+  const latestWorkOrder = new Map<string, WorkOrderRow>();
+  for (const wo of workOrdersRes?.data ?? []) if (!latestWorkOrder.has(wo.service_id)) latestWorkOrder.set(wo.service_id, wo);
+  const totals =
+    budget !== null && services.length > 0
+      ? planTotals(
+          services.map((s) => ({ ...s, work_order_status: latestWorkOrder.get(s.id)?.status ?? null })),
+          budget,
+        )
+      : null;
   const company = assignment.client_companies as unknown as { name: string } | null;
   const vendors = vendorsRes?.data ?? [];
   const vendorNames = new Map(vendors.map((v) => [v.id, v.name]));
@@ -130,7 +161,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             )}
 
             {totals && (
-              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5" data-testid="plan-totals">
+              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-6" data-testid="plan-totals">
                 <div>
                   <dt className="text-neutral-500">Budget</dt>
                   <dd className="text-lg font-semibold" data-testid="budget">{formatINR(totals.budget)}</dd>
@@ -140,7 +171,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                   <dd className="text-lg font-semibold" data-testid="estimated-total">{formatINR(totals.total)}</dd>
                 </div>
                 <div>
-                  <dt className="text-neutral-500">Committed with providers</dt>
+                  <dt className="text-neutral-500">Agreed with providers</dt>
+                  <dd className="text-lg font-semibold" data-testid="agreed">{formatINR(totals.agreed)}</dd>
+                </div>
+                <div>
+                  <dt className="text-neutral-500">Committed (work orders)</dt>
                   <dd className="text-lg font-semibold" data-testid="committed">{formatINR(totals.committed)}</dd>
                 </div>
                 <div>
@@ -167,9 +202,14 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <PolicyBadge status={s.policy_status} />
-                        {(s.approval_required || s.agreed_over_cap) && (
+                        {(s.approval_required || s.agreed_over_cap) && !s.approved_at && (
                           <span className="inline-flex rounded-full border border-neutral-300 px-2 py-0.5 text-xs font-medium" data-testid="approval-required">
                             Needs approval
+                          </span>
+                        )}
+                        {(s.approval_required || s.agreed_over_cap) && s.approved_at && (
+                          <span className="inline-flex rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-800" data-testid="approved">
+                            Approved
                           </span>
                         )}
                         <span className="font-semibold" data-testid="service-cost">{formatINR(s.estimated_cost)}</span>
@@ -201,7 +241,42 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                       {!s.selected_vendor_id && !picksProviders && (
                         <p className="text-sm text-neutral-500">Provider not chosen yet.</p>
                       )}
-                      {picksProviders && (
+                      {(() => {
+                        const wo = latestWorkOrder.get(s.id);
+                        const live = wo && isLiveWorkOrder(wo.status);
+                        const needsApproval = (s.approval_required || s.agreed_over_cap) && !s.approved_at;
+                        return (
+                          <div className="flex flex-col gap-2" data-testid="work-order">
+                            {wo && (
+                              <p className="text-sm" data-testid="work-order-status">
+                                <span className="font-medium">{wo.reference}</span> · {STAFF_STATUS_LABELS[wo.status]}
+                                {wo.booking_reference ? ` · booking ref ${wo.booking_reference}` : ""}
+                                {wo.booked_for ? ` for ${formatDate(wo.booked_for)}` : ""}
+                                {wo.vendor_note ? ` · “${wo.vendor_note}”` : ""}
+                              </p>
+                            )}
+                            {picksProviders && s.selected_vendor_id && needsApproval && (
+                              user.role === "rmc_admin" ? (
+                                <ApproveButton assignmentId={assignment.id} serviceId={s.id} title={s.title} />
+                              ) : (
+                                <p className="text-sm text-amber-700">Waiting for RMC admin approval before the work order can go out.</p>
+                              )
+                            )}
+                            {picksProviders && (
+                              <WorkOrderPanel
+                                assignmentId={assignment.id}
+                                serviceId={s.id}
+                                title={s.title}
+                                canSend={!!s.selected_vendor_id && !needsApproval && !live}
+                                workOrderId={wo?.id ?? null}
+                                reference={wo?.reference ?? null}
+                                canRenew={!!wo && !!live && wo.status !== "completed"}
+                              />
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {picksProviders && !isLiveWorkOrder(latestWorkOrder.get(s.id)?.status) && (
                         <ProviderPicker
                           assignmentId={assignment.id}
                           serviceId={s.id}
@@ -242,6 +317,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                         <p className="text-sm text-neutral-600">
                           {item.endDate ? `Until ${formatDate(item.endDate)}` : null}
                           {item.provider ? `${item.endDate ? " · " : ""}With ${item.provider}` : null}
+                        </p>
+                        <p className="text-sm" data-testid="journey-service-status">
+                          {EMPLOYEE_STATUS_LABELS[item.workStatus] ?? "Being arranged"}
+                          {item.bookingReference ? ` · ref ${item.bookingReference}` : ""}
+                          {item.bookedFor ? ` · ${formatDate(item.bookedFor)}` : ""}
                         </p>
                       </>
                     )}

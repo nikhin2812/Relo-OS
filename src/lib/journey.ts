@@ -8,6 +8,9 @@ export type JourneyService = {
   start_date: string | null;
   due_date: string | null;
   provider_name: string | null;
+  work_status?: string | null;
+  booked_for?: string | null;
+  booking_reference?: string | null;
 };
 
 export type JourneyMilestone = { id: string; title: string; due_date: string };
@@ -22,7 +25,18 @@ export type JourneyTask = {
 
 export type JourneyItem =
   | { kind: "milestone"; id: string; date: string; title: string }
-  | { kind: "service"; id: string; date: string; endDate: string | null; title: string; detail: string; provider: string | null }
+  | {
+      kind: "service";
+      id: string;
+      date: string;
+      endDate: string | null;
+      title: string;
+      detail: string;
+      provider: string | null;
+      workStatus: string;
+      bookedFor: string | null;
+      bookingReference: string | null;
+    }
   | { kind: "task"; id: string; date: string; title: string; done: boolean; overdue: boolean };
 
 // Same-day order: key dates first, then services starting, then to-dos.
@@ -46,6 +60,9 @@ export function buildJourney(
         title: s.title,
         detail: s.description,
         provider: s.provider_name,
+        workStatus: s.work_status ?? "planned",
+        bookedFor: s.booked_for ?? null,
+        bookingReference: s.booking_reference ?? null,
       })),
     ...tasks.map((t) => ({
       kind: "task" as const,

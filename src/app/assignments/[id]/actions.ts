@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { appBaseUrl } from "@/lib/app-url";
 import { requireUser } from "@/lib/auth";
+import { sendEmail } from "@/lib/email";
+import { generateToken, hashToken, portalUrl } from "@/lib/work-orders";
 import { canSeeBudgets } from "@/lib/roles";
 import { generatePlan } from "@/lib/planner/generate";
 import { createClient } from "@/lib/supabase/server";
@@ -133,4 +136,90 @@ export async function uploadDocumentAction(_prev: UploadState, formData: FormDat
 
   revalidatePath(`/assignments/${assignmentId}`);
   return { saved: check.fileName };
+}
+
+export type WorkOrderState = { error?: string; link?: string; reference?: string; emailed?: boolean } | undefined;
+
+// A person approves a service that needs approval (RMC admin only; the database checks).
+export async function approveServiceAction(_prev: WorkOrderState, formData: FormData): Promise<WorkOrderState> {
+  await requireUser();
+  const parsed = z.object({ serviceId: recordId, assignmentId: recordId }).safeParse({
+    serviceId: formData.get("serviceId"),
+    assignmentId: formData.get("assignmentId"),
+  });
+  if (!parsed.success) return { error: "Unknown service." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("approve_service", { p_service_id: parsed.data.serviceId });
+  if (error) return { error: error.code === "42501" ? "Only the RMC admin can approve." : error.message };
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return undefined;
+}
+
+// MVP item 9: send the work order. The link is shown once here and emailed when email is set up.
+export async function sendWorkOrderAction(_prev: WorkOrderState, formData: FormData): Promise<WorkOrderState> {
+  await requireUser();
+  const parsed = z.object({ serviceId: recordId, assignmentId: recordId }).safeParse({
+    serviceId: formData.get("serviceId"),
+    assignmentId: formData.get("assignmentId"),
+  });
+  if (!parsed.success) return { error: "Unknown service." };
+
+  const supabase = await createClient();
+  const token = generateToken();
+  const { data: reference, error } = await supabase.rpc("create_work_order", {
+    p_service_id: parsed.data.serviceId,
+    p_token_hash: hashToken(token),
+  });
+  if (error || !reference) {
+    console.error("create_work_order failed", error?.code, error?.message);
+    return { error: error?.code === "55000" || error?.code === "42501" ? error.message : "The work order could not be sent." };
+  }
+
+  const link = portalUrl(await appBaseUrl(), token);
+  const { data: wo } = await supabase
+    .from("work_orders")
+    .select("details, vendor_id, vendors(name, contact_email)")
+    .eq("reference", reference as string)
+    .maybeSingle();
+  const vendor = wo?.vendors as unknown as { name: string; contact_email: string } | null;
+  const details = (wo?.details ?? {}) as Record<string, string>;
+  const email = vendor
+    ? await sendEmail(
+        vendor.contact_email,
+        `Work order ${reference}: ${details.service_title ?? "relocation service"}`,
+        [
+          `Hello ${vendor.name},`,
+          "",
+          `You have a new work order (${reference}) for ${details.service_title ?? "a relocation service"}:`,
+          `${details.origin} to ${details.destination}, move date ${details.move_date}, family of ${details.family_size}.`,
+          "",
+          "Open it, accept it, add your booking reference and upload documents here (no account needed):",
+          link,
+          "",
+          "This link is personal to this work order. Please don't forward it.",
+        ].join("\n"),
+      )
+    : { sent: false as const, reason: "failed" as const };
+
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return { link, reference: reference as string, emailed: email.sent };
+}
+
+// Issues a fresh link; the old one stops working.
+export async function renewWorkOrderLinkAction(_prev: WorkOrderState, formData: FormData): Promise<WorkOrderState> {
+  await requireUser();
+  const parsed = z.object({ workOrderId: recordId, assignmentId: recordId }).safeParse({
+    workOrderId: formData.get("workOrderId"),
+    assignmentId: formData.get("assignmentId"),
+  });
+  if (!parsed.success) return { error: "Unknown work order." };
+  const supabase = await createClient();
+  const token = generateToken();
+  const { error } = await supabase.rpc("renew_work_order_link", {
+    p_work_order_id: parsed.data.workOrderId,
+    p_token_hash: hashToken(token),
+  });
+  if (error) return { error: error.code === "42501" ? "You can't renew this link." : error.message };
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return { link: portalUrl(await appBaseUrl(), token) };
 }

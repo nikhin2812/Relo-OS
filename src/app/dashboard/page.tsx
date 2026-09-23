@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { formatDate, formatINR } from "@/lib/format";
 import { ROLE_LABELS, canSeeBudgets } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/server";
+import { STAFF_STATUS_LABELS, type WorkOrderStatus } from "@/lib/work-orders";
 
 import { logout } from "../login/actions";
 
@@ -39,6 +40,20 @@ export default async function DashboardPage() {
   }
 
   const heading = user.role === "employee" ? "My relocation" : "Relocations";
+  const vendorOrders =
+    user.role === "vendor"
+      ? ((
+          await supabase
+            .from("work_orders")
+            .select("reference, status, agreed_cost, details")
+            .order("sent_at", { ascending: false })
+        ).data ?? []) as {
+          reference: string;
+          status: WorkOrderStatus;
+          agreed_cost: number;
+          details: { service_title: string; origin: string; destination: string };
+        }[]
+      : [];
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 p-4 sm:p-8">
@@ -51,6 +66,11 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canSeeBudgets(user.role) && (
+            <Button asChild variant="outline">
+              <Link href="/overview">Progress and budget</Link>
+            </Button>
+          )}
           {user.role === "hr_user" && (
             <Button asChild>
               <Link href="/requests/new">New relocation request</Link>
@@ -68,8 +88,29 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Work orders</CardTitle>
-            <CardDescription>No work orders have been sent to you yet.</CardDescription>
+            <CardDescription>
+              {vendorOrders.length === 0
+                ? "No work orders have been sent to you yet."
+                : "Work orders sent to your company. Use the secure link in each work order email to update it."}
+            </CardDescription>
           </CardHeader>
+          {vendorOrders.length > 0 && (
+            <CardContent>
+              <ul className="flex flex-col divide-y divide-neutral-100 text-sm" data-testid="vendor-work-orders">
+                {vendorOrders.map((wo) => (
+                  <li key={wo.reference} className="flex flex-wrap justify-between gap-2 py-2" data-testid="vendor-work-order">
+                    <span>
+                      <span className="font-medium">{wo.reference}</span> · {wo.details.service_title} · {wo.details.origin} →{" "}
+                      {wo.details.destination}
+                    </span>
+                    <span>
+                      {STAFF_STATUS_LABELS[wo.status]} · {formatINR(wo.agreed_cost)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          )}
         </Card>
       )}
 

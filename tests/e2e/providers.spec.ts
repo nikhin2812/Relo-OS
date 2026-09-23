@@ -52,7 +52,8 @@ test("RMC admin sees provider options with prices and picks providers", async ({
   await expect(flights.getByRole("button", { name: "Change provider" })).toBeVisible();
 
   // Totals: committed ₹1,08,000; forecast = 11,59,000 - 1,14,000 + 1,08,000 = 11,53,000
-  await expect(page.getByTestId("committed")).toHaveText("₹1,08,000");
+  await expect(page.getByTestId("agreed")).toHaveText("₹1,08,000");
+  await expect(page.getByTestId("committed")).toHaveText("₹0"); // nothing ordered yet
   await expect(page.getByTestId("remaining")).toHaveText("₹3,47,000");
 
   // Temporary housing: the pricier vendor is above the ₹3,50,000 policy cap
@@ -63,14 +64,14 @@ test("RMC admin sees provider options with prices and picks providers", async ({
   await housing.getByRole("button", { name: "Choose provider" }).click();
   await expect(housing.getByTestId("agreed-cost")).toHaveText("₹3,90,000");
   await expect(housing.getByTestId("agreed-over-cap")).toBeVisible();
-  await expect(page.getByTestId("committed")).toHaveText("₹4,98,000");
+  await expect(page.getByTestId("agreed")).toHaveText("₹4,98,000");
 
   // Changing to the cheaper vendor clears the over-cap warning
   await housingSelect.selectOption({ index: 1 });
   await housing.getByRole("button", { name: "Change provider" }).click();
   await expect(housing.getByTestId("agreed-cost")).toHaveText("₹3,30,000");
   await expect(housing.getByTestId("agreed-over-cap")).toHaveCount(0);
-  await expect(page.getByTestId("committed")).toHaveText("₹4,38,000");
+  await expect(page.getByTestId("agreed")).toHaveText("₹4,38,000");
 
   // A service no vendor offers says so
   await expect(step(page, /^Work and family visas$/)).not.toContainText("No vendor in your network");

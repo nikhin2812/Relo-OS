@@ -57,30 +57,41 @@ describe("providerOptions", () => {
   });
 });
 
-describe("planTotals with chosen providers", () => {
+describe("planTotals with chosen providers and work orders", () => {
   const services = [
-    { estimated_cost: 114000, approval_required: false, agreed_cost: 108000, agreed_over_cap: false },
-    { estimated_cost: 420000, approval_required: true, agreed_cost: 390000, agreed_over_cap: true },
+    { estimated_cost: 114000, approval_required: false, agreed_cost: 108000, agreed_over_cap: false, work_order_status: "booked" },
+    { estimated_cost: 420000, approval_required: true, agreed_cost: 390000, agreed_over_cap: true, work_order_status: null },
     { estimated_cost: 70000, approval_required: false, agreed_cost: null, agreed_over_cap: false },
-    { estimated_cost: 55000, approval_required: false, agreed_cost: 65000, agreed_over_cap: true },
+    { estimated_cost: 55000, approval_required: false, agreed_cost: 65000, agreed_over_cap: true, work_order_status: "sent" },
+    { estimated_cost: 20000, approval_required: false, agreed_cost: 25000, agreed_over_cap: false, work_order_status: "declined" },
   ];
 
-  it("separates estimates, commitments and the forecast", () => {
+  it("separates estimates, agreed prices, committed spend and the forecast", () => {
     const t = planTotals(services, 1500000);
-    expect(t.total).toBe(659000);
-    expect(t.committed).toBe(563000);
-    expect(t.forecast).toBe(633000); // agreed where chosen, estimate otherwise
-    expect(t.remaining).toBe(867000);
+    expect(t.total).toBe(679000);
+    expect(t.agreed).toBe(588000); // every chosen provider
+    expect(t.committed).toBe(173000); // only live work orders: booked 108,000 + sent 65,000
+    expect(t.forecast).toBe(658000); // agreed where chosen, estimate otherwise
+    expect(t.remaining).toBe(842000);
     expect(t.overBudget).toBe(false);
+    expect(t.booked).toBe(1);
+    expect(t.services).toBe(5);
   });
 
-  it("counts a service once even when both the estimate and the agreed rate need approval", () => {
+  it("a declined work order is not committed spend", () => {
+    const t = planTotals([services[4]], 100000);
+    expect(t.committed).toBe(0);
+    expect(t.agreed).toBe(25000);
+  });
+
+  it("counts services still waiting for approval, once each", () => {
     expect(planTotals(services, 1500000).approvalsNeeded).toBe(2);
+    const approved = services.map((s) => ({ ...s, approved_at: "2026-09-23T10:00:00Z" }));
+    expect(planTotals(approved, 1500000).approvalsNeeded).toBe(0);
   });
 
   it("uses the forecast, not the estimate, to decide if the plan is over budget", () => {
-    const t = planTotals(services, 640000); // estimates 659,000 but forecast 633,000
-    expect(t.overBudget).toBe(false);
-    expect(planTotals(services, 600000).overBudget).toBe(true);
+    expect(planTotals(services, 670000).overBudget).toBe(false); // estimates 679,000 but forecast 658,000
+    expect(planTotals(services, 650000).overBudget).toBe(true);
   });
 });

@@ -42,7 +42,14 @@ const TABLES = [
   "vendor_rates",
   "journey_tasks",
   "documents",
+  "work_orders",
+  "work_order_events",
 ] as const;
+
+// work_orders hides its link-hash column, so "*" is not allowed there.
+const COLUMNS: Partial<Record<(typeof TABLES)[number], string>> = {
+  work_orders: "id, reference, service_id, assignment_id, rmc_tenant_id, vendor_id, agreed_cost, status",
+};
 type Table = (typeof TABLES)[number];
 
 async function signIn(email: string): Promise<SupabaseClient> {
@@ -72,12 +79,12 @@ suite("role access through the API", () => {
         clients[role] = client;
         const entries = await Promise.all(
           TABLES.map(async (table) => {
-            const { data, error } = await client.from(table).select("*");
+            const { data, error } = await client.from(table).select(COLUMNS[table] ?? "*");
             if (error) throw new Error(`${role} reading ${table}: ${error.message}`);
             return [table, data ?? []] as const;
           }),
         );
-        rows[role] = Object.fromEntries(entries) as Record<Table, Record<string, unknown>[]>;
+        rows[role] = Object.fromEntries(entries) as unknown as Record<Table, Record<string, unknown>[]>;
       }),
     );
   }, 60_000);
@@ -211,6 +218,41 @@ suite("role access through the API", () => {
         p_vendor_id: SKYLINE,
       });
       expect(error?.code).toBe("42501");
+    });
+  }
+
+  it("nobody can read work order link hashes", async () => {
+    for (const role of Object.keys(DEMO_USERS) as Role[]) {
+      const { error } = await clients[role].from("work_orders").select("token_hash").limit(1);
+      expect(error?.code, role).toBe("42501");
+    }
+  });
+
+  it("work orders: employee sees none, vendor only its own, HR only its company's", () => {
+    expect(rows.employee.work_orders).toHaveLength(0);
+    expect(rows.employee.work_order_events).toHaveLength(0);
+    expect(rows.vendor.work_orders.every((w) => w.vendor_id === SKYLINE)).toBe(true);
+    expect(rows.vendor.work_order_events).toHaveLength(0);
+    const hrRelocations = new Set(rows.hr_user.assignments.map((a) => a.id));
+    expect(rows.hr_user.work_orders.every((w) => hrRelocations.has(w.assignment_id as string))).toBe(true);
+    expect(rows.test_hr.work_orders.every((w) => w.rmc_tenant_id !== DEMO_TENANT)).toBe(true);
+  });
+
+  it("the portal refuses made-up links, even for logged-out visitors", async () => {
+    const anon = createClient(url!, anonKey!, { auth: { persistSession: false } });
+    const { error } = await anon.rpc("portal_get_work_order", { p_token: "made-up-link-0123456789abcdefghijklmnop" });
+    expect(error?.code).toBe("P0002");
+    const update = await anon.rpc("portal_update_work_order", { p_token: "made-up-link-0123456789abcdefghijklmnop", p_action: "book" });
+    expect(update.error?.code).toBe("P0002");
+  });
+
+  for (const role of ["hr_user", "employee", "vendor"] as Role[]) {
+    it(`${role} cannot send work orders or approve`, async () => {
+      const service = rows.rmc_admin.plan_services.find((s) => s.assignment_id === DEMO_ASSIGNMENT);
+      const send = await clients[role].rpc("create_work_order", { p_service_id: service!.id, p_token_hash: "a".repeat(64) });
+      expect(send.error?.code).toBe("42501");
+      const approve = await clients[role].rpc("approve_service", { p_service_id: service!.id });
+      expect(approve.error?.code).toBe("42501");
     });
   }
 

@@ -54,42 +54,56 @@ export function applyPolicy(plan: PlannerOutput, policy: PolicyConfig, familySiz
 export type PlanTotals = {
   /** Sum of the AI's estimates for every service. */
   total: number;
-  /** Sum of agreed costs for services with a provider chosen. */
+  /** Sum of agreed costs for services with a provider chosen (ordered or not). */
+  agreed: number;
+  /** Sum of agreed costs for services with a live work order: money the RMC has committed. */
   committed: number;
-  /** Agreed cost where chosen, estimate otherwise. */
+  /** Agreed cost where a provider is chosen, estimate otherwise. */
   forecast: number;
   budget: number;
   /** Budget minus forecast. Negative when over budget. */
   remaining: number;
   overBudget: boolean;
+  /** Services that need approval and haven't had it yet. */
   approvalsNeeded: number;
+  booked: number;
+  services: number;
 };
 
 type TotalsInput = Pick<PlanService, "estimated_cost" | "approval_required"> & {
   agreed_cost?: number | null;
   agreed_over_cap?: boolean;
+  approved_at?: string | null;
+  work_order_status?: string | null;
 };
+
+const LIVE = new Set(["sent", "accepted", "booked", "completed"]);
 
 export function planTotals(services: TotalsInput[], budget: number): PlanTotals {
   // Work in paise to avoid floating-point drift.
   const paise = (n: number | null | undefined) => Math.round(Number(n ?? 0) * 100);
   let total = 0;
+  let agreed = 0;
   let committed = 0;
   let forecast = 0;
   for (const s of services) {
     const chosen = s.agreed_cost !== null && s.agreed_cost !== undefined;
     total += paise(s.estimated_cost);
-    if (chosen) committed += paise(s.agreed_cost);
+    if (chosen) agreed += paise(s.agreed_cost);
+    if (chosen && LIVE.has(s.work_order_status ?? "")) committed += paise(s.agreed_cost);
     forecast += chosen ? paise(s.agreed_cost) : paise(s.estimated_cost);
   }
   const budgetPaise = paise(budget);
   return {
     total: total / 100,
+    agreed: agreed / 100,
     committed: committed / 100,
     forecast: forecast / 100,
     budget: budgetPaise / 100,
     remaining: (budgetPaise - forecast) / 100,
     overBudget: forecast > budgetPaise,
-    approvalsNeeded: services.filter((s) => s.approval_required || s.agreed_over_cap).length,
+    approvalsNeeded: services.filter((s) => (s.approval_required || s.agreed_over_cap) && !s.approved_at).length,
+    booked: services.filter((s) => s.work_order_status === "booked" || s.work_order_status === "completed").length,
+    services: services.length,
   };
 }

@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { supabaseEnv } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/portal/"];
 
 // Keeps the login session fresh and sends logged-out visitors to /login.
 export async function proxy(request: NextRequest) {

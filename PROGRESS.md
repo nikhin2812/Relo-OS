@@ -84,14 +84,40 @@
   Supabase's login and database servers ("JWT issued at future") made one API test flaky, and
   the request-and-plan step now has 15 s in browser tests.
 
+### Session 5 — Work orders, provider portal, HR progress and budget, CSV (23 Sep 2026)
+- Approvals: services the plan flagged, or whose agreed price is over the policy cap, need the
+  RMC admin to click "Approve" before a work order can go out. Changing provider clears it.
+- New tables (RLS on both): `work_orders` (one live order per service; details copied at send
+  time; the link's SHA-256 hash is stored, never the link, and no user can read the hash
+  column) and `work_order_events` (audit trail).
+- Provider portal `/portal/<link>`: no account. The provider sees only that job and its agreed
+  price, can accept, decline, book (reference + date), complete, and upload documents. Every
+  action goes through `portal_*` database functions that check the link (60-day expiry).
+  Portal uploads live in a separate folder only RMC staff and HR can open; employees never see
+  them (a booking confirmation may show prices).
+- Email: sent through Resend when `RESEND_API_KEY` and `EMAIL_FROM` are set; otherwise (and
+  always for the demo's made-up .test vendor addresses) the link is shown once on screen.
+  "New provider link" issues a fresh link and kills the old one.
+- The employee's journey shows "Being arranged / Confirmed / Booked · ref … / Done", no prices.
+- HR "Progress and budget" page (`/overview`): per relocation — services booked, to-dos done,
+  approvals waiting, budget, committed (live work orders), forecast remaining — plus totals.
+- CSV export (`/exports/relocations`, one row per service, spreadsheet-formula safe) and CSV
+  import for HR (`/requests/import`, up to 200 rows, each checked like the form).
+- The logged-in vendor sees a list of the work orders sent to its company.
+- Tests: `supabase/tests/work_orders_access.sql` (69 checks, all pass) alongside the earlier
+  185; 97 unit tests; API tests for work orders and the portal; Playwright end-to-end
+  transaction test (request → plan → provider → approval → work order → portal booking →
+  employee sees "Booked" → HR overview → CSV export/import).
+
 ## Next
-- Session 5: work orders, provider portal, HR progress and committed budget (MVP items 8 and 9).
+- Session 6: reconciliation — invoice matched to relocation, service and budget (MVP item 10).
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
   and later in Vercel (Session 7). Until then "Generate plan" in the real app shows
   "AI planning isn't switched on yet" and keeps the request.
-- Security Advisor warns that signed-in users can run 8 database functions
+- Real email needs a Resend account: add `RESEND_API_KEY` and `EMAIL_FROM` (Session 7).
+- Security Advisor warns that signed-in users can run several database functions
   (`create_relocation_request`, `save_relocation_plan`, `record_plan_failure`,
   `reset_test_tenant_data`, `select_service_provider`, `set_journey_task_done`,
   `journey_services`, `register_document`). Intended: they are the only write paths and each checks the
