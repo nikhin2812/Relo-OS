@@ -18,6 +18,8 @@ import { DocumentUpload } from "./document-upload";
 import { GeneratePlanButton } from "./generate-button";
 import { TaskToggle } from "./task-toggle";
 import { ApproveButton, WorkOrderPanel } from "./work-order-controls";
+import { DecideInvoiceForm, RecordInvoiceForm } from "./invoice-forms";
+import { INVOICE_STATUS_LABELS, flagMessages, moneyTrail, varianceLabel, type InvoiceMatch } from "@/lib/reconciliation";
 import { EMPLOYEE_STATUS_LABELS, STAFF_STATUS_LABELS, isLiveWorkOrder, type WorkOrderStatus } from "@/lib/work-orders";
 import { ProviderPicker } from "./provider-picker";
 
@@ -42,6 +44,14 @@ type ServiceRow = {
   agreed_cost: number | null;
   agreed_over_cap: boolean;
   approved_at: string | null;
+};
+
+type InvoiceRow = InvoiceMatch & {
+  id: string;
+  service_id: string;
+  invoice_date: string;
+  source: "portal" | "staff";
+  decision_note: string | null;
 };
 
 type WorkOrderRow = {
@@ -71,7 +81,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
   const costed = canSeeBudgets(user.role);
   const picksProviders = user.role === "rmc_admin" || user.role === "consultant";
-  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes, journeyRes, tasksRes, docsRes, workOrdersRes] = await Promise.all([
+  const [budgetRes, planRes, servicesRes, milestonesRes, vendorsRes, ratesRes, policyRes, journeyRes, tasksRes, docsRes, workOrdersRes, invoicesRes] = await Promise.all([
     costed ? supabase.from("assignment_budgets").select("amount").eq("assignment_id", id).maybeSingle() : null,
     costed ? supabase.from("relocation_plans").select("status, summary, error_message, model").eq("assignment_id", id).maybeSingle() : null,
     costed
@@ -94,6 +104,14 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           .order("sent_at", { ascending: false })
           .returns<WorkOrderRow[]>()
       : null,
+    costed
+      ? supabase
+          .from("invoices")
+          .select("id, service_id, invoice_number, invoice_date, amount, agreed_amount, invoiced_to_date, variance_amount, variance_pct, tolerance_pct, budget_remaining_after, flags, status, source, decision_note")
+          .eq("assignment_id", id)
+          .order("created_at")
+          .returns<InvoiceRow[]>()
+      : null,
   ]);
 
   const budget = budgetRes?.data ? Number(budgetRes.data.amount) : null;
@@ -104,10 +122,19 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   // The latest work order per service (a declined one can be followed by a new one).
   const latestWorkOrder = new Map<string, WorkOrderRow>();
   for (const wo of workOrdersRes?.data ?? []) if (!latestWorkOrder.has(wo.service_id)) latestWorkOrder.set(wo.service_id, wo);
+  const invoicesByService = new Map<string, InvoiceRow[]>();
+  for (const inv of invoicesRes?.data ?? []) invoicesByService.set(inv.service_id, [...(invoicesByService.get(inv.service_id) ?? []), inv]);
+  const invoicedFor = (serviceId: string) =>
+    (invoicesByService.get(serviceId) ?? []).filter((i) => i.status !== "disputed").reduce((n, i) => n + Number(i.amount), 0);
   const totals =
     budget !== null && services.length > 0
       ? planTotals(
-          services.map((s) => ({ ...s, work_order_status: latestWorkOrder.get(s.id)?.status ?? null })),
+          services.map((s) => ({
+            ...s,
+            work_order_status: latestWorkOrder.get(s.id)?.status ?? null,
+            invoiced_amount: invoicedFor(s.id) || null,
+            flagged_invoices: (invoicesByService.get(s.id) ?? []).filter((i) => i.status === "flagged").length,
+          })),
           budget,
         )
       : null;
@@ -161,7 +188,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             )}
 
             {totals && (
-              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-6" data-testid="plan-totals">
+              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-5" data-testid="plan-totals">
                 <div>
                   <dt className="text-neutral-500">Budget</dt>
                   <dd className="text-lg font-semibold" data-testid="budget">{formatINR(totals.budget)}</dd>
@@ -187,6 +214,20 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                 <div>
                   <dt className="text-neutral-500">Approvals needed</dt>
                   <dd className="text-lg font-semibold" data-testid="approvals-needed">{totals.approvalsNeeded}</dd>
+                </div>
+                <div>
+                  <dt className="text-neutral-500">Invoiced</dt>
+                  <dd className="text-lg font-semibold" data-testid="invoiced">{formatINR(totals.invoiced)}</dd>
+                </div>
+                <div>
+                  <dt className="text-neutral-500">Difference vs agreed</dt>
+                  <dd className={`text-lg font-semibold ${totals.variance > 0 ? "text-red-700" : ""}`} data-testid="variance">
+                    {varianceLabel(totals.variance, totals.agreed > 0 ? (totals.variance * 100) / totals.agreed : 0)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-neutral-500">Invoices to review</dt>
+                  <dd className="text-lg font-semibold" data-testid="invoices-to-review">{totals.flaggedInvoices}</dd>
                 </div>
               </dl>
             )}
@@ -226,6 +267,68 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                         {s.approval_required && s.approval_reason && s.approval_reason !== s.policy_note ? ` ${s.approval_reason}` : ""}
                       </p>
                     )}
+                    {(() => {
+                      const wo = latestWorkOrder.get(s.id) ?? null;
+                      const invoices = invoicesByService.get(s.id) ?? [];
+                      const trail = moneyTrail({
+                        estimate: Number(s.estimated_cost),
+                        agreed: s.agreed_cost === null ? null : Number(s.agreed_cost),
+                        provider: s.selected_vendor_id ? (vendorNames.get(s.selected_vendor_id) ?? null) : null,
+                        workOrder: wo,
+                        invoices,
+                      });
+                      return (
+                        <div className="mt-3 flex flex-col gap-2">
+                          <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="money-trail" aria-label={`Money trail for ${s.title}`}>
+                            {trail.map((step, i) => (
+                              <li key={step.label} className="flex items-center gap-2">
+                                {i > 0 && <span aria-hidden className="text-neutral-400">→</span>}
+                                <span
+                                  className={
+                                    step.tone === "warn"
+                                      ? "font-semibold text-red-700"
+                                      : step.tone === "ok"
+                                        ? "font-semibold text-green-800"
+                                        : step.tone === "muted"
+                                          ? "text-neutral-500"
+                                          : ""
+                                  }
+                                  data-testid={`trail-${step.label.toLowerCase().replace(" ", "-")}`}
+                                >
+                                  {step.label}: {step.value}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                          {invoices.map((inv) => (
+                            <div key={inv.id} className="rounded-md bg-neutral-50 p-2 text-sm" data-testid="invoice">
+                              <p>
+                                <span className="font-medium">Invoice {inv.invoice_number}</span> · {formatINR(Number(inv.amount))} ·{" "}
+                                {formatDate(inv.invoice_date)} · {inv.source === "portal" ? "from provider" : "recorded by staff"} ·{" "}
+                                <span
+                                  className={inv.status === "flagged" || inv.status === "disputed" ? "font-semibold text-red-700" : "font-semibold text-green-800"}
+                                  data-testid="invoice-status"
+                                >
+                                  {INVOICE_STATUS_LABELS[inv.status]}
+                                </span>
+                              </p>
+                              {flagMessages(inv).map((m) => (
+                                <p key={m} className="text-red-700" data-testid="invoice-flag">
+                                  ⚠ {m}
+                                </p>
+                              ))}
+                              {inv.decision_note && <p className="text-neutral-600">Decision note: {inv.decision_note}</p>}
+                              {user.role === "rmc_admin" && inv.status === "flagged" && (
+                                <DecideInvoiceForm assignmentId={assignment.id} invoiceId={inv.id} invoiceNumber={inv.invoice_number} />
+                              )}
+                            </div>
+                          ))}
+                          {picksProviders && wo && (wo.status === "booked" || wo.status === "completed") && (
+                            <RecordInvoiceForm assignmentId={assignment.id} workOrderId={wo.id} reference={wo.reference} />
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3" data-testid="provider">
                       {s.selected_vendor_id && s.agreed_cost !== null && (
                         <p className="text-sm" data-testid="selected-provider">

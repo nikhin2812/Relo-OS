@@ -45,12 +45,12 @@ export default async function OverviewPage() {
         <CardHeader>
           <CardTitle>All relocations</CardTitle>
           <CardDescription>
-            Committed means work orders sent to providers. Forecast uses agreed prices where a provider is chosen and the
-            plan&apos;s estimate otherwise.
+            Committed means work orders sent to providers. Forecast uses invoices where they have arrived, agreed prices
+            where a provider is chosen, and the plan&apos;s estimate otherwise.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5" data-testid="portfolio">
+          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4 lg:grid-cols-7" data-testid="portfolio">
             <div>
               <dt className="text-neutral-500">Relocations</dt>
               <dd className="text-lg font-semibold" data-testid="portfolio-count">{portfolio.relocations}</dd>
@@ -62,6 +62,14 @@ export default async function OverviewPage() {
             <div>
               <dt className="text-neutral-500">Committed</dt>
               <dd className="text-lg font-semibold" data-testid="portfolio-committed">{formatINR(portfolio.committed)}</dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Invoiced</dt>
+              <dd className="text-lg font-semibold" data-testid="portfolio-invoiced">{formatINR(portfolio.invoiced)}</dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Invoices to review</dt>
+              <dd className="text-lg font-semibold" data-testid="portfolio-flagged">{portfolio.flaggedInvoices}</dd>
             </div>
             <div>
               <dt className="text-neutral-500">Forecast</dt>
@@ -76,7 +84,7 @@ export default async function OverviewPage() {
       </Card>
 
       <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
-        <table className="w-full min-w-[800px] text-sm" data-testid="overview-table">
+        <table className="w-full min-w-[1000px] text-sm" data-testid="overview-table">
           <thead className="bg-neutral-50 text-left text-neutral-600">
             <tr>
               <th className="p-3 font-medium">Relocation</th>
@@ -86,6 +94,8 @@ export default async function OverviewPage() {
               <th className="p-3 font-medium">Approvals waiting</th>
               <th className="p-3 text-right font-medium">Budget</th>
               <th className="p-3 text-right font-medium">Committed</th>
+              <th className="p-3 text-right font-medium">Invoiced</th>
+              <th className="p-3 text-right font-medium">Difference</th>
               <th className="p-3 text-right font-medium">Forecast remaining</th>
             </tr>
           </thead>
@@ -106,6 +116,11 @@ export default async function OverviewPage() {
                 <td className="p-3">{s.totals?.approvalsNeeded ?? 0}</td>
                 <td className="p-3 text-right">{s.totals ? formatINR(s.totals.budget) : "—"}</td>
                 <td className="p-3 text-right" data-testid="overview-committed">{s.totals ? formatINR(s.totals.committed) : "—"}</td>
+                <td className="p-3 text-right" data-testid="overview-invoiced">{s.totals ? formatINR(s.totals.invoiced) : "—"}</td>
+                <td className={`p-3 text-right ${s.totals && s.totals.variance > 0 ? "font-semibold text-red-700" : ""}`} data-testid="overview-variance">
+                  {s.totals && s.totals.invoiced > 0 ? `${s.totals.variance > 0 ? "+" : ""}${formatINR(s.totals.variance)}` : "—"}
+                  {s.totals && s.totals.flaggedInvoices > 0 ? ` · ${s.totals.flaggedInvoices} to review` : ""}
+                </td>
                 <td
                   className={`p-3 text-right ${s.totals?.overBudget && s.totals.services > 0 ? "font-semibold text-red-700" : ""}`}
                   data-testid="overview-remaining"

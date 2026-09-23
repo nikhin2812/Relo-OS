@@ -91,10 +91,11 @@ test("HR sees the chosen providers but cannot pick or see rate cards", async ({ 
 test("consultant sees provider options on the demo relocation (read only check)", async ({ page }) => {
   await signInAs(page, "consultant");
   await page.getByRole("link", { name: "Bengaluru, India → Dubai, UAE" }).click();
-  const flights = step(page, /^One-way flights$/);
-  await expect(flights.getByLabel("Provider for One-way flights").locator("option")).toContainText([
+  // Flights and the shipment are already booked in the demo, so look at settling-in.
+  const settling = step(page, /^Settling-in support$/);
+  await expect(settling.getByLabel("Provider for Settling-in support").locator("option")).toContainText([
     "Choose a provider…",
-    "Skyline Moves & Travel (Demo)",
+    "Palm Stay Apartments (Demo)",
     "Falcon Relocation Services (Demo)",
   ]);
 });

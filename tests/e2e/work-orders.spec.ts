@@ -179,3 +179,97 @@ test("HR imports relocation requests from CSV and sees which rows had problems",
   await page.goto("/dashboard");
   await expect(page.getByTestId("assignment-card").filter({ hasText: "Pune → Singapore" }).first()).toBeVisible();
 });
+
+// ---------------------------------------------------------------- Session 6: invoices
+
+const stamp = Date.now();
+
+async function sendInvoiceThroughPortal(page: Page, number: string, amount: string) {
+  const form = page.locator("form").filter({ has: page.locator('input[name="invoiceNumber"]') });
+  await form.getByLabel("Invoice number").fill(number);
+  await form.getByLabel("Invoice date").fill(inDays(0));
+  await form.getByLabel("Amount (₹)").fill(amount);
+  await form.locator('input[name="file"]').setInputFiles({
+    name: `${number}.pdf`,
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\n% fictional invoice\n%%EOF\n"),
+  });
+  await form.getByRole("button", { name: "Send invoice" }).click();
+}
+
+test("the provider invoices 8% over the agreed rate and it is flagged for review", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(flightsLink);
+  await sendInvoiceThroughPortal(page, `INV-E2E-${stamp}-1`, "116640");
+  await expect(page.getByTestId("invoice-sent")).toHaveText(`Invoice INV-E2E-${stamp}-1 received (sent for review)`);
+  // The provider doesn't see internal review reasons
+  await expect(page.getByTestId("portal-invoices")).toContainText("Under review");
+  await expect(page.locator("body")).not.toContainText("above the agreed price");
+  await context.close();
+});
+
+test("the RMC admin sees why, must give a reason, and disputes it", async ({ page }) => {
+  await signInWithEmail(page, TEST_ADMIN_EMAIL);
+  await page.goto(relocationPath);
+  const flights = step(page, /^One-way flights$/);
+  const invoice = flights.getByTestId("invoice").filter({ hasText: `INV-E2E-${stamp}-1` });
+  await expect(invoice.getByTestId("invoice-status")).toHaveText("Flagged");
+  await expect(invoice.getByTestId("invoice-flag")).toHaveText(
+    "⚠ ₹8,640 (8.0%) above the agreed price of ₹1,08,000 — more than the 2% allowed.",
+  );
+  await expect(flights.getByTestId("trail-difference")).toHaveText("Difference: ₹8,640 over (8.0%)");
+  await expect(page.getByTestId("invoices-to-review")).toHaveText("1");
+
+  await invoice.getByRole("button", { name: `Dispute invoice INV-E2E-${stamp}-1` }).click();
+  await expect(invoice.getByRole("alert")).toHaveText("Add a short note explaining the decision");
+
+  await invoice.getByLabel(`Decision note for INV-E2E-${stamp}-1`).fill("Fare agreed at ₹36,000 per person; please reissue");
+  await invoice.getByRole("button", { name: `Dispute invoice INV-E2E-${stamp}-1` }).click();
+  await expect(invoice.getByTestId("invoice-status")).toHaveText("Disputed");
+  await expect(invoice).toContainText("Decision note: Fare agreed at ₹36,000 per person; please reissue");
+  await expect(page.getByTestId("invoices-to-review")).toHaveText("0");
+});
+
+test("the provider sends a corrected invoice that matches", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(flightsLink);
+  await sendInvoiceThroughPortal(page, `INV-E2E-${stamp}-2`, "108000");
+  await expect(page.getByTestId("invoice-sent")).toHaveText(`Invoice INV-E2E-${stamp}-2 received (matches the agreed price)`);
+  await context.close();
+});
+
+test("staff record an emailed invoice; a small difference inside the tolerance is accepted", async ({ page }) => {
+  await signInWithEmail(page, TEST_ADMIN_EMAIL);
+  await page.goto(relocationPath);
+  const flights = step(page, /^One-way flights$/);
+  await expect(flights.getByTestId("invoice").filter({ hasText: `INV-E2E-${stamp}-2` }).getByTestId("invoice-status")).toHaveText("Matched");
+  await expect(flights.getByTestId("trail-difference")).toHaveText("Difference: Exactly as agreed");
+
+  await flights.getByText(/Record an invoice received for WO-/).click();
+  await flights.getByLabel("Invoice number").fill(`INV-EMAIL-${stamp}`);
+  await flights.getByLabel("Invoice date").fill(inDays(0));
+  await flights.getByLabel("Amount (₹)").fill("500");
+  await flights.getByRole("button", { name: "Record and check invoice" }).click();
+
+  const emailed = flights.getByTestId("invoice").filter({ hasText: `INV-EMAIL-${stamp}` });
+  await expect(emailed).toContainText("recorded by staff");
+  await expect(emailed.getByTestId("invoice-status")).toHaveText("Matched"); // ₹500 on ₹1,08,000 is 0.5%, under the 2% allowed
+  await expect(flights.getByTestId("trail-difference")).toHaveText("Difference: ₹500 over (0.5%)");
+  await expect(page.getByTestId("invoiced")).toHaveText("₹1,08,500");
+});
+
+test("HR's overview and CSV include invoices and the difference", async ({ page }) => {
+  await signInWithEmail(page, TEST_HR_EMAIL);
+  await page.goto("/overview");
+  const row = page.getByTestId("overview-row").filter({ hasText: employeeName });
+  await expect(row.getByTestId("overview-invoiced")).toHaveText("₹1,08,500");
+  await expect(row.getByTestId("overview-variance")).toHaveText("+₹500");
+
+  const csv = await (await page.request.get("/exports/relocations")).text();
+  const flightsRow = csv.split("\r\n").find((l) => l.includes(employeeName) && l.includes("One-way flights"))!;
+  expect(flightsRow).toContain(`INV-E2E-${stamp}-1 INV-E2E-${stamp}-2 INV-EMAIL-${stamp}`);
+  expect(flightsRow).toContain(",108500,500,");
+  expect(flightsRow.endsWith(",disputed")).toBe(true);
+});

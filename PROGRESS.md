@@ -114,8 +114,36 @@
   one-time work order link now stays on screen after the page refreshes; a test's expected
   figure was mis-added. Security Advisor: fixed a missing search_path on a new helper.
 
+### Session 6 — Reconciliation (24 Sep 2026)
+- New table `invoices` (RLS): each invoice is tied to a work order, and through it to the
+  service, the relocation and the budget. Nobody can write it directly.
+- Matching happens in the database the moment an invoice arrives (`private.record_invoice`):
+  - price: everything invoiced on the work order (not disputed) against the agreed price;
+    flagged when more than the RMC's tolerance over (`invoice_tolerance_pct`, demo 2%)
+  - budget: what's left once this invoice counts (invoices where they exist, otherwise the
+    agreed price of live work orders); flagged when the relocation would go over
+  - duplicate invoice numbers from the same vendor are flagged
+  - only booked or completed work can be invoiced
+  The result (agreed, invoiced to date, difference ₹ and %, tolerance, budget left, flags) is
+  stored with the invoice.
+- Ways in: the provider sends the invoice with its PDF through the work order link
+  (`portal_submit_invoice`), or RMC staff record one that arrived by email (`record_invoice`).
+- Decisions: only the RMC admin can Approve anyway or Dispute a flagged invoice, and must add
+  a note; decisions go into the work order history. Disputed invoices stop counting.
+- Money trail on every service: Estimate → Agreed → Work order → Booking → Invoiced →
+  Difference. Totals: Invoiced, Difference vs agreed, Invoices to review. HR's overview and
+  the CSV export include invoices and the difference. The vendor sees its own invoices
+  ("Under review" rather than internal reasons); the employee sees none.
+- Demo data (spec section 9): flights and the shipment booked with Skyline; shipment invoice
+  INV-SKY-2292 matches; flights invoice INV-SKY-2291 is ₹1,16,640 against ₹1,08,000 — 8% over,
+  flagged.
+- Tests: `supabase/tests/invoices_access.sql` (48 checks, all pass); 108 unit tests; API tests
+  for invoices; Playwright: demo flag check, and in the test RMC the provider invoices 8% over
+  → flagged → admin disputes with a note → corrected invoice matches → staff record an emailed
+  invoice inside the tolerance → HR overview and CSV.
+
 ## Next
-- Session 6: reconciliation — invoice matched to relocation, service and budget (MVP item 10).
+- Session 7: security pass, deploy to Vercel, demo logins, launch report.
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)

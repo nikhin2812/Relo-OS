@@ -5,7 +5,8 @@ import { formatDate, formatINR } from "@/lib/format";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { STAFF_STATUS_LABELS, allowedPortalActions, type WorkOrderStatus } from "@/lib/work-orders";
 
-import { PortalUpdateForm, PortalUploadForm } from "./portal-forms";
+import { PortalInvoiceForm, PortalUpdateForm, PortalUploadForm } from "./portal-forms";
+import { INVOICE_STATUS_LABELS, type InvoiceStatus } from "@/lib/reconciliation";
 
 // The link is a secret: keep it out of Referer headers and search engines.
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ type PortalWorkOrder = {
   vendor_note: string | null;
   expires_at: string;
   documents: { file_name: string; created_at: string }[];
+  invoices: { invoice_number: string; amount: number; invoice_date: string; status: InvoiceStatus }[];
 };
 
 export default async function PortalPage({ params }: { params: Promise<{ token: string }> }) {
@@ -146,6 +148,30 @@ export default async function PortalPage({ params }: { params: Promise<{ token: 
           {open && <PortalUploadForm token={decodeURIComponent(token)} />}
         </CardContent>
       </Card>
+
+      {(wo.status === "booked" || wo.status === "completed" || wo.invoices.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Invoices</CardTitle>
+            <CardDescription>
+              Invoices are checked against the agreed price of {formatINR(wo.agreed_cost)} as soon as they arrive.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {wo.invoices.length > 0 && (
+              <ul className="text-sm" data-testid="portal-invoices">
+                {wo.invoices.map((inv) => (
+                  <li key={inv.invoice_number + inv.invoice_date}>
+                    {inv.invoice_number} · {formatINR(inv.amount)} · {formatDate(inv.invoice_date)} ·{" "}
+                    {inv.status === "matched" || inv.status === "approved" ? INVOICE_STATUS_LABELS[inv.status] : "Under review"}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(wo.status === "booked" || wo.status === "completed") && <PortalInvoiceForm token={decodeURIComponent(token)} />}
+          </CardContent>
+        </Card>
+      )}
 
       <p className="text-xs text-neutral-500">
         This link is personal to this work order and works until {formatDate(wo.expires_at.slice(0, 10))}. Please don&apos;t forward it.

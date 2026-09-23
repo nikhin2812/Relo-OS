@@ -45,12 +45,21 @@ test("employee sees their own relocation and no money figures", async ({ page })
   await expect(page.locator("body")).not.toContainText(/budget/i);
 });
 
-test("vendor sees no relocations and no money figures", async ({ page }) => {
-  await signInAs(page, "vendor");
+test("vendor sees only its own work orders and invoices, never a relocation or budget", async ({ page }) => {
+  await signInAs(page, "vendor"); // Skyline Moves & Travel (Demo)
   await expect(page.getByTestId("role")).toHaveText("Vendor");
-  await expect(page.getByText("No work orders have been sent to you yet.")).toBeVisible();
   await expect(page.getByTestId("assignment-card")).toHaveCount(0);
-  await expect(page.locator("body")).not.toContainText("₹");
+  // The demo has Skyline booked for flights and the shipment
+  const orders = page.getByTestId("vendor-work-order");
+  await expect(orders.filter({ hasText: "One-way flights" })).toBeVisible();
+  await expect(orders.filter({ hasText: "Household goods shipment" })).toBeVisible();
+  await expect(page.getByTestId("vendor-invoices")).toContainText("INV-SKY-2291");
+  // Its own prices only: no budgets, no other vendors, no internal review reasons
+  const body = page.locator("body");
+  await expect(body).not.toContainText("₹15,00,000");
+  await expect(body).not.toContainText("Palm Stay");
+  await expect(body).not.toContainText("Falcon");
+  await expect(body).not.toContainText("agreed price of");
 });
 
 test("signing out returns to the login page", async ({ page }) => {

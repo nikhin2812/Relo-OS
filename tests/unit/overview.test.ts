@@ -54,9 +54,34 @@ describe("portfolioTotals", () => {
       relocations: 3,
       budget: 1500000,
       committed: 0,
+      invoiced: 0,
+      variance: 0,
+      flaggedInvoices: 0,
       forecast: 1200000,
       remaining: 300000,
       overBudget: 1,
     });
+  });
+});
+
+describe("summaries with invoices", () => {
+  it("counts invoiced amounts, the difference and flagged invoices per relocation and overall", () => {
+    const s = summarizeRelocation({
+      assignment: base,
+      budget: 1500000,
+      services: [svc("f", 114000, 108000), svc("g", 380000, 365000)],
+      workOrderStatusByService: new Map([["f", "booked"], ["g", "booked"]]),
+      tasks: [],
+      invoices: [
+        { service_id: "f", amount: "116640.00", status: "flagged" },
+        { service_id: "g", amount: "365000.00", status: "matched" },
+        { service_id: "g", amount: "999.00", status: "disputed" },
+      ],
+    });
+    expect(s.totals?.invoiced).toBe(481640);
+    expect(s.totals?.variance).toBe(8640);
+    expect(s.totals?.flaggedInvoices).toBe(1);
+    const p = portfolioTotals([s]);
+    expect([p.invoiced, p.variance, p.flaggedInvoices]).toEqual([481640, 8640, 1]);
   });
 });

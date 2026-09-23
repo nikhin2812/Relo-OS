@@ -7,6 +7,7 @@ import { formatDate, formatINR } from "@/lib/format";
 import { ROLE_LABELS, canSeeBudgets } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/server";
 import { STAFF_STATUS_LABELS, type WorkOrderStatus } from "@/lib/work-orders";
+import { INVOICE_STATUS_LABELS, type InvoiceStatus } from "@/lib/reconciliation";
 
 import { logout } from "../login/actions";
 
@@ -54,6 +55,11 @@ export default async function DashboardPage() {
           details: { service_title: string; origin: string; destination: string };
         }[]
       : [];
+  const vendorInvoices =
+    user.role === "vendor"
+      ? ((await supabase.from("invoices").select("invoice_number, invoice_date, amount, status").order("created_at", { ascending: false }))
+          .data ?? []) as { invoice_number: string; invoice_date: string; amount: number; status: InvoiceStatus }[]
+      : [];
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 p-4 sm:p-8">
@@ -94,6 +100,24 @@ export default async function DashboardPage() {
                 : "Work orders sent to your company. Use the secure link in each work order email to update it."}
             </CardDescription>
           </CardHeader>
+          {vendorInvoices.length > 0 && (
+            <CardContent>
+              <h3 className="mb-2 font-medium">Your invoices</h3>
+              <ul className="flex flex-col divide-y divide-neutral-100 text-sm" data-testid="vendor-invoices">
+                {vendorInvoices.map((inv) => (
+                  <li key={inv.invoice_number + inv.invoice_date} className="flex flex-wrap justify-between gap-2 py-2">
+                    <span>
+                      {inv.invoice_number} · {formatDate(inv.invoice_date)}
+                    </span>
+                    <span>
+                      {formatINR(Number(inv.amount))} ·{" "}
+                      {inv.status === "matched" || inv.status === "approved" ? INVOICE_STATUS_LABELS[inv.status] : "Under review"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          )}
           {vendorOrders.length > 0 && (
             <CardContent>
               <ul className="flex flex-col divide-y divide-neutral-100 text-sm" data-testid="vendor-work-orders">

@@ -85,3 +85,53 @@ export async function portalUploadAction(_prev: PortalState, formData: FormData)
   revalidatePath(`/portal/${token.data}`);
   return { done: check.fileName };
 }
+
+// The provider sends an invoice with its PDF; the database matches it straight away.
+export async function portalInvoiceAction(_prev: PortalState, formData: FormData): Promise<PortalState> {
+  const parsed = z
+    .object({
+      token: tokenSchema,
+      invoiceNumber: z.string().trim().min(1, "Enter the invoice number").max(60, "Invoice number is too long"),
+      invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the invoice date"),
+      amount: z.coerce.number({ error: "Enter the amount" }).positive("Amount must be more than ₹0").max(100_000_000),
+    })
+    .safeParse({
+      token: formData.get("token"),
+      invoiceNumber: formData.get("invoiceNumber"),
+      invoiceDate: formData.get("invoiceDate"),
+      amount: formData.get("amount"),
+    });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Attach the invoice (PDF, JPG or PNG)." };
+  if (file.size > MAX_UPLOAD_BYTES) return { error: "Files can be up to 4 MB." };
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const check = checkUpload(file.name, file.size, bytes.subarray(0, 16));
+  if (!check.ok) return { error: check.error };
+
+  const { token, invoiceNumber, invoiceDate, amount } = parsed.data;
+  const supabase = createAnonClient();
+  const { data: wo, error: woError } = await supabase.rpc("portal_get_work_order", { p_token: token });
+  if (woError || !wo) return { error: "This link is not valid or has expired." };
+
+  const path = `${(wo as { assignment_id: string }).assignment_id}/portal/${hashToken(token)}/${crypto.randomUUID()}.${check.ext}`;
+  const upload = await supabase.storage.from(DOCUMENTS_BUCKET).upload(path, bytes, { contentType: check.mime, upsert: false });
+  if (upload.error) return { error: "The upload failed. This work order may be closed." };
+
+  const { data, error } = await supabase.rpc("portal_submit_invoice", {
+    p_token: token,
+    p_invoice_number: invoiceNumber,
+    p_invoice_date: invoiceDate,
+    p_amount: amount,
+    p_storage_path: path,
+    p_file_name: check.fileName,
+    p_mime_type: check.mime,
+    p_size_bytes: file.size,
+  });
+  if (error) {
+    return { error: ["22023", "55000"].includes(error.code) ? error.message : "The invoice could not be saved." };
+  }
+  revalidatePath(`/portal/${token}`);
+  return { done: `Invoice ${invoiceNumber} received (${data === "matched" ? "matches the agreed price" : "sent for review"})` };
+}

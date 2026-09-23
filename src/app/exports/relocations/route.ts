@@ -19,12 +19,12 @@ export async function GET() {
   const rows: unknown[][] = [
     ["relocation_id", "company", "employee_name", "origin", "destination", "move_date", "relocation_status", "budget_inr",
      "service", "category", "estimated_cost_inr", "provider", "agreed_cost_inr", "approval_needed", "approved",
-     "work_order", "work_order_status", "booking_reference"],
+     "work_order", "work_order_status", "booking_reference", "invoices", "invoiced_inr", "variance_inr", "invoice_status"],
   ];
   for (const a of data.assignments) {
     const services = data.services.filter((s) => s.assignment_id === a.id);
     const base = [a.id, a.client_companies?.name ?? "", a.employee_name, a.origin, a.destination, a.move_date, a.status, data.budgets.get(a.id) ?? ""];
-    if (services.length === 0) rows.push([...base, "", "", "", "", "", "", "", "", "", ""]);
+    if (services.length === 0) rows.push([...base, "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
     for (const s of services) {
       const wo = latestWorkOrder.get(s.id);
       rows.push([
@@ -39,6 +39,7 @@ export async function GET() {
         wo?.reference ?? "",
         wo?.status ?? "",
         wo?.booking_reference ?? "",
+        ...invoiceColumns(data.invoices.filter((i) => i.service_id === s.id), s.agreed_cost),
       ]);
     }
   }
@@ -51,6 +52,17 @@ export async function GET() {
       "Cache-Control": "no-store",
     },
   });
+}
+
+// invoices, invoiced total, difference vs agreed, and the "worst" status for the service.
+function invoiceColumns(invoices: { invoice_number: string; amount: number | string; status: string }[], agreed: number | null) {
+  if (invoices.length === 0) return ["", "", "", ""];
+  const counted = invoices.filter((i) => i.status !== "disputed");
+  const invoiced = counted.reduce((n, i) => n + Math.round(Number(i.amount) * 100), 0) / 100;
+  const variance = agreed === null ? "" : Math.round((invoiced - agreed) * 100) / 100;
+  const order = ["flagged", "disputed", "approved", "matched"];
+  const status = order.find((st) => invoices.some((i) => i.status === st)) ?? "";
+  return [invoices.map((i) => i.invoice_number).join(" "), invoiced, variance, status];
 }
 
 type OverviewWorkOrder = Awaited<ReturnType<typeof loadOverview>>["workOrders"][number];

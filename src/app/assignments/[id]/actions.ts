@@ -223,3 +223,68 @@ export async function renewWorkOrderLinkAction(_prev: WorkOrderState, formData: 
   revalidatePath(`/assignments/${parsed.data.assignmentId}`);
   return { link: portalUrl(await appBaseUrl(), token) };
 }
+
+export type InvoiceState = { error?: string; saved?: string } | undefined;
+
+// RMC staff record an invoice that arrived by email; the database matches it.
+export async function recordInvoiceAction(_prev: InvoiceState, formData: FormData): Promise<InvoiceState> {
+  await requireUser();
+  const parsed = z
+    .object({
+      workOrderId: recordId,
+      assignmentId: recordId,
+      invoiceNumber: z.string().trim().min(1, "Enter the invoice number").max(60, "Invoice number is too long"),
+      invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the invoice date"),
+      amount: z.coerce.number({ error: "Enter the amount" }).positive("Amount must be more than ₹0").max(100_000_000),
+    })
+    .safeParse({
+      workOrderId: formData.get("workOrderId"),
+      assignmentId: formData.get("assignmentId"),
+      invoiceNumber: formData.get("invoiceNumber"),
+      invoiceDate: formData.get("invoiceDate"),
+      amount: formData.get("amount"),
+    });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("record_invoice", {
+    p_work_order_id: parsed.data.workOrderId,
+    p_invoice_number: parsed.data.invoiceNumber,
+    p_invoice_date: parsed.data.invoiceDate,
+    p_amount: parsed.data.amount,
+  });
+  if (error) {
+    return { error: ["42501", "22023", "55000"].includes(error.code) ? error.message : "The invoice could not be saved." };
+  }
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return { saved: parsed.data.invoiceNumber };
+}
+
+// A person decides on an invoice (RMC admin only; the database checks and requires a note).
+export async function decideInvoiceAction(_prev: InvoiceState, formData: FormData): Promise<InvoiceState> {
+  await requireUser();
+  const parsed = z
+    .object({
+      invoiceId: recordId,
+      assignmentId: recordId,
+      decision: z.enum(["approve", "dispute"]),
+      note: z.string().trim().min(3, "Add a short note explaining the decision").max(1000),
+    })
+    .safeParse({
+      invoiceId: formData.get("invoiceId"),
+      assignmentId: formData.get("assignmentId"),
+      decision: formData.get("decision"),
+      note: formData.get("note"),
+    });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("decide_invoice", {
+    p_invoice_id: parsed.data.invoiceId,
+    p_decision: parsed.data.decision,
+    p_note: parsed.data.note,
+  });
+  if (error) return { error: error.code === "42501" ? "Only the RMC admin can decide on invoices." : error.message };
+  revalidatePath(`/assignments/${parsed.data.assignmentId}`);
+  return { saved: parsed.data.decision };
+}

@@ -44,6 +44,7 @@ const TABLES = [
   "documents",
   "work_orders",
   "work_order_events",
+  "invoices",
 ] as const;
 
 // work_orders hides its link-hash column, so "*" is not allowed there.
@@ -237,6 +238,44 @@ suite("role access through the API", () => {
     expect(rows.hr_user.work_orders.every((w) => hrRelocations.has(w.assignment_id as string))).toBe(true);
     expect(rows.test_hr.work_orders.every((w) => w.rmc_tenant_id !== DEMO_TENANT)).toBe(true);
   });
+
+  it("invoices: employee sees none, vendor only its own, HR only its company's", () => {
+    expect(rows.employee.invoices).toHaveLength(0);
+    expect(rows.vendor.invoices.every((i) => i.vendor_id === SKYLINE)).toBe(true);
+    const hrRelocations = new Set(rows.hr_user.assignments.map((a) => a.id));
+    expect(rows.hr_user.invoices.every((i) => hrRelocations.has(i.assignment_id as string))).toBe(true);
+    expect(rows.test_hr.invoices.every((i) => i.rmc_tenant_id !== DEMO_TENANT)).toBe(true);
+  });
+
+  it("the demo's 8%-over invoice is flagged against the agreed price", () => {
+    const inv = rows.rmc_admin.invoices.find((i) => i.invoice_number === "INV-SKY-2291");
+    expect(inv).toBeDefined();
+    expect(Number(inv!.agreed_amount)).toBe(108000);
+    expect(Number(inv!.variance_amount)).toBe(8640);
+    expect(Number(inv!.variance_pct)).toBe(8);
+    expect(inv!.flags).toContain("over_agreed_rate");
+  });
+
+  for (const role of ["consultant", "hr_user", "employee", "vendor"] as Role[]) {
+    it(`${role} cannot decide on invoices`, async () => {
+      const inv = rows.rmc_admin.invoices.find((i) => i.invoice_number === "INV-SKY-2291");
+      const { error } = await clients[role].rpc("decide_invoice", { p_invoice_id: inv!.id, p_decision: "approve", p_note: "ok by me" });
+      expect(error?.code).toBe("42501");
+    });
+  }
+
+  for (const role of ["hr_user", "employee", "vendor"] as Role[]) {
+    it(`${role} cannot record invoices`, async () => {
+      const wo = rows.rmc_admin.work_orders.find((w) => w.assignment_id === DEMO_ASSIGNMENT);
+      const { error } = await clients[role].rpc("record_invoice", {
+        p_work_order_id: wo!.id,
+        p_invoice_number: "SHOULD-FAIL",
+        p_invoice_date: new Date().toISOString().slice(0, 10),
+        p_amount: 1,
+      });
+      expect(error?.code).toBe("42501");
+    });
+  }
 
   it("the portal refuses made-up links, even for logged-out visitors", async () => {
     const anon = createClient(url!, anonKey!, { auth: { persistSession: false } });

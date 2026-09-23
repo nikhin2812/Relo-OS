@@ -24,12 +24,13 @@ export type OverviewData = {
   vendors: Map<string, string>;
   assignments: { id: string; employee_name: string; origin: string; destination: string; move_date: string; status: string; client_companies: { name: string } | null }[];
   budgets: Map<string, number>;
+  invoices: { service_id: string; invoice_number: string; amount: number | string; variance_amount: number | string; status: string }[];
 };
 
 // Loads everything the overview and the CSV export need. Row level security
 // decides which relocations come back for this user.
 export async function loadOverview(supabase: SupabaseClient): Promise<OverviewData> {
-  const [assignmentsRes, budgetsRes, servicesRes, workOrdersRes, tasksRes, vendorsRes] = await Promise.all([
+  const [assignmentsRes, budgetsRes, servicesRes, workOrdersRes, tasksRes, vendorsRes, invoicesRes] = await Promise.all([
     supabase.from("assignments").select("id, employee_name, origin, destination, move_date, status, client_companies(name)").order("move_date"),
     supabase.from("assignment_budgets").select("assignment_id, amount"),
     supabase
@@ -39,6 +40,7 @@ export async function loadOverview(supabase: SupabaseClient): Promise<OverviewDa
     supabase.from("work_orders").select("service_id, status, reference, booking_reference, sent_at").order("sent_at", { ascending: false }),
     supabase.from("journey_tasks").select("assignment_id, status"),
     supabase.from("vendors").select("id, name"),
+    supabase.from("invoices").select("service_id, invoice_number, amount, variance_amount, status").order("created_at"),
   ]);
 
   const assignments = (assignmentsRes.data ?? []) as unknown as OverviewData["assignments"];
@@ -52,6 +54,7 @@ export async function loadOverview(supabase: SupabaseClient): Promise<OverviewDa
   const latestStatus = new Map<string, string>();
   for (const wo of workOrders) if (!latestStatus.has(wo.service_id)) latestStatus.set(wo.service_id, wo.status);
   const tasks = (tasksRes.data ?? []) as { assignment_id: string; status: string }[];
+  const invoices = (invoicesRes.data ?? []) as OverviewData["invoices"];
 
   const summaries = assignments.map((a) =>
     summarizeRelocation({
@@ -60,6 +63,7 @@ export async function loadOverview(supabase: SupabaseClient): Promise<OverviewDa
       services: services.filter((s) => s.assignment_id === a.id),
       workOrderStatusByService: latestStatus,
       tasks: tasks.filter((t) => t.assignment_id === a.id),
+      invoices: invoices.filter((i) => services.some((s) => s.id === i.service_id && s.assignment_id === a.id)),
     }),
   );
 
@@ -70,5 +74,6 @@ export async function loadOverview(supabase: SupabaseClient): Promise<OverviewDa
     vendors: new Map((vendorsRes.data ?? []).map((v) => [v.id as string, v.name as string])),
     assignments,
     budgets,
+    invoices,
   };
 }
