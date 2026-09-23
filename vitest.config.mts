@@ -13,6 +13,8 @@ export default defineConfig({
   test: {
     include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"],
     environment: "node",
+    // Integration tests talk to the live Supabase project over the network.
+    testTimeout: 20_000,
     // Reads .env.local locally; CI provides the same values as secrets.
     env: loadEnv("test", process.cwd(), ""),
   },

@@ -306,9 +306,7 @@ suite("role access through the API", () => {
 
   it("a logged-out visitor can read nothing", async () => {
     const client = createClient(url!, anonKey!, { auth: { persistSession: false } });
-    for (const table of TABLES) {
-      const { error } = await client.from(table).select("*");
-      expect(error?.code, table).toBe("42501"); // permission denied
-    }
+    const results = await Promise.all(TABLES.map((table) => client.from(table).select("id").limit(1)));
+    results.forEach(({ error }, i) => expect(error?.code, TABLES[i]).toBe("42501")); // permission denied
   });
 });
