@@ -81,7 +81,7 @@ test("HR sees the chosen providers but cannot pick or see rate cards", async ({ 
   await expect(step(page, /^One-way flights$/).getByTestId("selected-provider")).toContainText("Skyline Moves & Travel (Test)");
   await expect(step(page, /^Settling-in support$/)).toContainText("Provider not chosen yet.");
   await expect(page.getByRole("button", { name: /Choose provider|Change provider/ })).toHaveCount(0);
-  await expect(page.locator("select")).toHaveCount(0);
+  await expect(page.locator('select[name="vendorId"]')).toHaveCount(0);
   // Vendors that weren't chosen stay hidden from HR
   await expect(page.locator("body")).not.toContainText("Falcon Relocation Services");
 });

@@ -61,8 +61,8 @@ test("HR creates a request and sees the generated plan with costs, policy flags 
   await expect(page.getByTestId("remaining")).toHaveText("₹3,41,000");
   await expect(page.getByTestId("approvals-needed")).toHaveText("1");
 
-  // Milestones
-  await expect(page.getByTestId("milestone-list").getByRole("listitem")).toHaveCount(4);
+  // Milestones appear on the journey timeline
+  await expect(page.getByTestId("journey-milestone")).toHaveCount(4);
 
   // The dashboard shows the new relocation as planned
   await page.getByRole("link", { name: "← Back to relocations" }).click();
