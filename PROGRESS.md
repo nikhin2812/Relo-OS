@@ -180,8 +180,10 @@
   suite's plan checks updated. 113 unit tests (5 new for signing); API test: every role's
   hand-written plan refused, and an old real signature refused.
 
+- CI green against Relo OS Test (unit, API and all browser tests, including plan
+  generation through the signed save).
+
 ## Next
-- Owner: GitHub secrets → point CI at Relo OS Test and add `PLAN_SIGNING_SECRET` (see chat).
 - Owner: deploy on Vercel with DEPLOY.md (now includes the signing secret step), send the URL.
 - Later: remove the old test-only RMC and its three test logins from the demo database.
 
