@@ -49,21 +49,30 @@ declare
   employee uuid := '30000000-0000-0000-0000-000000000004';
   vendor uuid := '30000000-0000-0000-0000-000000000005';
   other_admin uuid := 'f0000000-0000-0000-0000-000000000021';
+  skyline uuid := '50000000-0000-0000-0000-000000000002';
+  falcon uuid := '50000000-0000-0000-0000-000000000001';
+  vx uuid := 'f0000000-0000-0000-0000-000000000031'; -- other RMC's vendor
+  vy uuid := 'f0000000-0000-0000-0000-000000000032'; -- demo RMC, chosen for a1
+  vz uuid := 'f0000000-0000-0000-0000-000000000033'; -- demo RMC, not chosen
+  svc_one uuid := 'f0000000-0000-0000-0000-000000000041';
+  svc_three uuid := 'f0000000-0000-0000-0000-000000000043';
+  svc_imm uuid := 'f0000000-0000-0000-0000-000000000044';
+  vendor_ids text;
   users jsonb;
   ids text := format('(%L::uuid, %L::uuid, %L::uuid, %L::uuid)', a1, a2, a3, a4);
   -- query per table, limited to rows this test controls
   queries jsonb;
   -- expected rows per role, in the order of `tbl_names`
   expect jsonb := jsonb_build_object(
-    'rmc_admin',       '[1, 2, 5, 3, 3, 1, 1, 3, 4, 3]',
-    'consultant',      '[1, 1, 1, 1, 1, 1, 1, 1, 2, 1]',
-    'hr_user',         '[1, 1, 1, 2, 2, 0, 1, 2, 3, 2]',
-    'employee',        '[1, 1, 1, 1, 0, 0, 0, 0, 0, 1]',
-    'vendor',          '[1, 0, 1, 0, 0, 0, 0, 0, 0, 0]',
-    'other_rmc_admin', '[1, 1, 1, 1, 1, 0, 1, 1, 1, 1]');
+    'rmc_admin',       '[1, 2, 5, 3, 3, 1, 1, 3, 5, 3, 2, 2]',
+    'consultant',      '[1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 2, 2]',
+    'hr_user',         '[1, 1, 1, 2, 2, 0, 1, 2, 4, 2, 1, 0]',
+    'employee',        '[1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0]',
+    'vendor',          '[1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]',
+    'other_rmc_admin', '[1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]');
   tbl_names text[] := array['rmc_tenants', 'client_companies', 'profiles', 'assignments',
     'assignment_budgets', 'assignment_consultants', 'rmc_policies', 'relocation_plans',
-    'plan_services', 'plan_milestones'];
+    'plan_services', 'plan_milestones', 'vendors', 'vendor_rates'];
   good_plan text := '{"summary":"Fixture plan","services":[{"key":"fx_a","category":"immigration","title":"FX visa","sequence":1,"depends_on":[],"start_date":"2026-12-01","due_date":"2026-12-10","estimated_cost":1000,"policy_status":"within_policy","approval_required":false}],"milestones":[{"title":"FX done","due_date":"2026-12-10","sequence":1,"related_service_keys":["fx_a"]}]}';
   bad_plan text := '{"summary":"Bad","services":[{"key":"fx_b","category":"flights","title":"FX flight","sequence":2,"depends_on":["missing"],"estimated_cost":10,"policy_status":"within_policy"}],"milestones":[]}';
   results jsonb := '[]';
@@ -72,6 +81,7 @@ declare
   i int;
   got text;
 begin
+  vendor_ids := format('(%L::uuid, %L::uuid, %L::uuid)', vx, vy, vz);
   users := jsonb_build_object('rmc_admin', admin, 'consultant', consultant, 'hr_user', hr,
     'employee', employee, 'vendor', vendor, 'other_rmc_admin', other_admin);
   queries := jsonb_build_object(
@@ -84,7 +94,9 @@ begin
     'rmc_policies', format('select count(*) from public.rmc_policies where rmc_tenant_id in (%L, %L)', t1, t2),
     'relocation_plans', 'select count(*) from public.relocation_plans where assignment_id in ' || ids,
     'plan_services', 'select count(*) from public.plan_services where service_key like ''fx\_%''',
-    'plan_milestones', 'select count(*) from public.plan_milestones where title like ''FX %''');
+    'plan_milestones', 'select count(*) from public.plan_milestones where title like ''FX %''',
+    'vendors', 'select count(*) from public.vendors where id in ' || vendor_ids,
+    'vendor_rates', 'select count(*) from public.vendor_rates where vendor_id in ' || vendor_ids);
 
   begin
     -- Fixtures
@@ -107,12 +119,21 @@ begin
       values (a1, t1, 'pending') on conflict (assignment_id) do nothing;
     insert into public.relocation_plans (assignment_id, rmc_tenant_id, status) values
       (a3, t1, 'pending'), (a4, t2, 'pending');
-    insert into public.plan_services (assignment_id, rmc_tenant_id, service_key, category, title,
-      sequence, estimated_cost, policy_status) values
-      (a1, t1, 'fx_one', 'flights', 'FX 1', 1, 10, 'within_policy'),
-      (a1, t1, 'fx_two', 'flights', 'FX 2', 2, 10, 'within_policy'),
-      (a3, t1, 'fx_three', 'flights', 'FX 3', 1, 10, 'within_policy'),
-      (a4, t2, 'fx_four', 'flights', 'FX 4', 1, 10, 'within_policy');
+    insert into public.vendors (id, rmc_tenant_id, name, contact_email) values
+      (vx, t2, 'Other RMC Vendor (fixture)', 'vx@fixture.relo-os.test'),
+      (vy, t1, 'Chosen Vendor (fixture)', 'vy@fixture.relo-os.test'),
+      (vz, t1, 'Unchosen Vendor (fixture)', 'vz@fixture.relo-os.test');
+    insert into public.vendor_rates (vendor_id, rmc_tenant_id, category, rate, rate_basis) values
+      (vx, t2, 'flights', 1000, 'per_person'),
+      (vy, t1, 'flights', 20000, 'per_person'),
+      (vz, t1, 'flights', 50000, 'per_person');
+    insert into public.plan_services (id, assignment_id, rmc_tenant_id, service_key, category, title,
+      sequence, estimated_cost, policy_status, selected_vendor_id, agreed_cost) values
+      (svc_one, a1, t1, 'fx_one', 'flights', 'FX 1', 1, 10, 'within_policy', vy, 60000),
+      (gen_random_uuid(), a1, t1, 'fx_two', 'flights', 'FX 2', 2, 10, 'within_policy', null, null),
+      (svc_imm, a1, t1, 'fx_imm', 'immigration', 'FX imm', 1, 10, 'within_policy', null, null),
+      (svc_three, a3, t1, 'fx_three', 'flights', 'FX 3', 1, 10, 'within_policy', null, null),
+      (gen_random_uuid(), a4, t2, 'fx_four', 'flights', 'FX 4', 1, 10, 'within_policy', null, null);
     insert into public.plan_milestones (assignment_id, rmc_tenant_id, title, due_date, sequence) values
       (a1, t1, 'FX m1', '2026-11-15', 1), (a3, t1, 'FX m3', '2026-12-01', 1), (a4, t2, 'FX m4', '2026-12-01', 1);
 
@@ -137,6 +158,33 @@ begin
       got := pg_temp.try_as(uid, 'select public.reset_test_tenant_data()');
       results := results || jsonb_build_object('c', who || ' cannot wipe a non-test tenant', 'e', '42501', 'a', got);
     end loop;
+
+    -- Vendors see their own company only
+    got := pg_temp.count_as(vendor, format('select count(*) from public.vendors where id = %L', skyline))::text;
+    results := results || jsonb_build_object('c', 'vendor sees own vendor company', 'e', '1', 'a', got);
+    got := pg_temp.count_as(vendor, format('select count(*) from public.vendors where id = %L', falcon))::text;
+    results := results || jsonb_build_object('c', 'vendor cannot see other vendors', 'e', '0', 'a', got);
+
+    -- Picking providers: RMC admin or allocated consultant; price comes from the rate card
+    got := pg_temp.try_as(consultant, format('select public.select_service_provider(%L, %L)', svc_one, vz));
+    results := results || jsonb_build_object('c', 'allocated consultant can choose a provider', 'e', 'ok', 'a', got);
+    select agreed_cost::text || ' ' || agreed_over_cap::text into got from public.plan_services where id = svc_one;
+    results := results || jsonb_build_object('c', 'agreed cost is rate x family and flagged over the cap', 'e', '150000.00 true', 'a', got);
+    got := pg_temp.try_as(admin, format('select public.select_service_provider(%L, %L)', svc_one, vy));
+    select agreed_cost::text || ' ' || agreed_over_cap::text into got from public.plan_services where id = svc_one;
+    results := results || jsonb_build_object('c', 'changing to a cheaper provider clears the over-cap flag', 'e', '60000.00 false', 'a', got);
+    got := pg_temp.try_as(consultant, format('select public.select_service_provider(%L, %L)', svc_three, vy));
+    results := results || jsonb_build_object('c', 'consultant cannot choose for an unallocated relocation', 'e', '42501', 'a', got);
+    foreach who in array array['hr_user', 'employee', 'vendor', 'other_rmc_admin'] loop
+      got := pg_temp.try_as((users ->> who)::uuid, format('select public.select_service_provider(%L, %L)', svc_one, vz));
+      results := results || jsonb_build_object('c', who || ' cannot choose providers', 'e', '42501', 'a', got);
+    end loop;
+    got := pg_temp.try_as(admin, format('select public.select_service_provider(%L, %L)', svc_one, vx));
+    results := results || jsonb_build_object('c', 'another RMC''s vendor cannot be chosen', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(admin, format('select public.select_service_provider(%L, %L)', svc_imm, skyline));
+    results := results || jsonb_build_object('c', 'a vendor without a rate for the service cannot be chosen', 'e', '22023', 'a', got);
+    got := pg_temp.try_as(admin, format('update public.plan_services set agreed_cost = 1 where id = %L', svc_one));
+    results := results || jsonb_build_object('c', 'agreed cost cannot be edited directly', 'e', '42501', 'a', got);
 
     -- Cross-tenant spot checks
     got := pg_temp.count_as(admin, format('select count(*) from public.plan_services where assignment_id = %L', a4))::text;
