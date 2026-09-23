@@ -90,7 +90,7 @@ test("the provider opens the link without an account, accepts, books and uploads
   await page.getByRole("button", { name: "Mark as booked" }).click();
   await expect(page.getByTestId("portal-status")).toContainText("Booked · booking ref SKY-E2E-1");
 
-  await page.locator('input[name="file"]').setInputFiles({
+  await page.getByLabel(/Booking confirmation or other document/).setInputFiles({
     name: "e-ticket.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4\n% fictional e-ticket\n%%EOF\n"),
