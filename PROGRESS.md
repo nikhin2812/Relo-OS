@@ -147,8 +147,26 @@
   step ("HR creates a request") has passed only on retry twice across all runs; it now reports
   the page state if it fails again so the cause can be found.
 
+### Session 7 — Pre-launch pass (23 Sep 2026)
+- `npm audit`: 0 vulnerabilities. Supabase Security Advisor: only the intended warnings
+  (portal functions callable without an account; checked write functions for signed-in
+  users; leaked password protection needs a paid plan).
+- Database checks re-run against the live database: 185 + 69 + 48 = **302, all pass**.
+  CI green: unit, API and 47 browser tests.
+- Secret scan of the code and the full git history: clean. A test build with fake "canary"
+  secrets confirmed no server-only key ends up in the browser bundle.
+- Hardening: security headers on every page (no framing, no sniffing, strict referrer,
+  HTTPS-only, a content security policy in production); login cookies are httpOnly,
+  SameSite=Lax and Secure in production; the site refuses to build links without
+  `NEXT_PUBLIC_APP_URL` on Vercel. Browser test `security.spec.ts` checks these.
+- `vercel.json` pins the server region to Tokyo (next to the database). `DEPLOY.md` has the
+  click-by-click Vercel steps. `LAUNCH_REPORT.md` is the plain-language launch report with
+  the demo logins.
+
 ## Next
-- Session 7: security pass, deploy to Vercel, demo logins, launch report.
+- Owner: deploy on Vercel with DEPLOY.md, add the domain, send the URL for a live check.
+- Needs a yes (schema): plan signing so HR cannot save a hand-written plan.
+- Recommended: a separate Supabase project for CI so tests never touch the demo database.
 
 ## Known issues / to do
 - **Waiting on owner:** `ANTHROPIC_API_KEY` GitHub secret (enables the live AI check in CI)
