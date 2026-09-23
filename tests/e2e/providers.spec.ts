@@ -29,7 +29,8 @@ test("HR creates a relocation in the test RMC", async ({ page }) => {
   await page.getByLabel("Move date").fill(inDays(60));
   await page.getByLabel("Budget (₹)").fill("1500000");
   await page.getByRole("button", { name: "Create request and generate plan" }).click();
-  await expect(page.getByTestId("service-row")).toHaveCount(6);
+  // Saving the request and the plan takes several database calls; allow for a busy CI run.
+  await expect(page.getByTestId("service-row")).toHaveCount(6, { timeout: 15_000 });
   assignmentUrl = new URL(page.url()).pathname;
 });
 

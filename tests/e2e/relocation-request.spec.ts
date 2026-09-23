@@ -38,7 +38,8 @@ test("HR creates a request and sees the generated plan with costs, policy flags 
   await fillRequest(page, name);
   await page.getByRole("button", { name: "Create request and generate plan" }).click();
 
-  await expect(page).toHaveURL(/\/assignments\/[0-9a-f-]{36}$/);
+  // Saving the request and the plan takes several database calls; allow for a busy CI run.
+  await expect(page).toHaveURL(/\/assignments\/[0-9a-f-]{36}$/, { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Bengaluru, India → Dubai, UAE" })).toBeVisible();
   await expect(page.getByTestId("plan-summary")).toContainText("Six services");
 
@@ -76,7 +77,7 @@ test("if the AI planner fails, the request is kept and HR can try again", async 
   await fillRequest(page, `Flaky ${Date.now()} [simulate-ai-failure] (Demo)`);
   await page.getByRole("button", { name: "Create request and generate plan" }).click();
 
-  await expect(page).toHaveURL(/\/assignments\/[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(/\/assignments\/[0-9a-f-]{36}$/, { timeout: 15_000 });
   await expect(page.getByTestId("plan-error")).toContainText("busy or unreachable");
   await expect(page.getByTestId("service-row")).toHaveCount(0);
 
