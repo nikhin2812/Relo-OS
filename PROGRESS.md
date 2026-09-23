@@ -41,6 +41,8 @@
 - Tests: 112 database checks (all pass), 50 unit tests (all pass), API role tests for all new
   tables, Playwright flow tests (request → plan, failure → retry, validation, HR-only form,
   employee sees no costs). Browser tests use a stand-in planner (`PLANNER_MODE=mock`).
+- CI green on GitHub (all unit, API role and 13 Playwright tests). Live AI check skipped
+  until the `ANTHROPIC_API_KEY` secret is added.
 
 ## Next
 - Session 3: services, policy and providers (MVP items 3, 4, 5).
