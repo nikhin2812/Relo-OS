@@ -4,7 +4,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { TEST_ADMIN_EMAIL, TEST_EMPLOYEE_EMAIL, TEST_HR_EMAIL } from "../demo-users";
-import { signInWithEmail } from "./helpers";
+import { expectPlanReady, signInWithEmail } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -32,7 +32,7 @@ test("HR requests a relocation and gets a plan", async ({ page }) => {
   await page.getByLabel("Move date").fill(inDays(60));
   await page.getByLabel("Budget (₹)").fill("1500000");
   await page.getByRole("button", { name: "Create request and generate plan" }).click();
-  await expect(page.getByTestId("service-row")).toHaveCount(6, { timeout: 15_000 });
+  await expectPlanReady(page);
   relocationPath = new URL(page.url()).pathname;
 });
 

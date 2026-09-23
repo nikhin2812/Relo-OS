@@ -30,3 +30,18 @@ export async function loginThroughForm(page: Page, email: string) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 }
+
+// Waits for a newly created request's plan to appear. If it doesn't, fails with
+// what the page actually shows (URL, alerts, plan status) so flaky runs can be diagnosed.
+export async function expectPlanReady(page: Page, services = 6) {
+  try {
+    await expect(page.getByTestId("service-row")).toHaveCount(services, { timeout: 20_000 });
+  } catch (error) {
+    const alerts = await page.getByRole("alert").allInnerTexts().catch(() => []);
+    const planState = await page.getByTestId("plan-not-ready").innerText().catch(() => "(no plan status shown)");
+    const heading = await page.locator("h1").first().innerText().catch(() => "(no heading)");
+    throw new Error(
+      `Plan did not appear. URL: ${page.url()} | heading: ${heading} | alerts: ${JSON.stringify(alerts.filter(Boolean))} | plan: ${planState}\n${String(error)}`,
+    );
+  }
+}
