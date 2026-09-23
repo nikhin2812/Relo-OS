@@ -136,8 +136,9 @@ test("HR sees progress and committed budget across relocations", async ({ page }
   const row = page.getByTestId("overview-row").filter({ hasText: employeeName });
   await expect(row.getByTestId("overview-booked")).toHaveText("1 of 6");
   await expect(row.getByTestId("overview-committed")).toHaveText("₹4,38,000");
-  // Forecast: flights 1,08,000 + housing 3,30,000 + remaining estimates 7,19,000 = 11,57,000
-  await expect(row.getByTestId("overview-remaining")).toHaveText("₹3,43,000");
+  // Forecast: agreed flights 1,08,000 + agreed housing 3,30,000 + the other four estimates
+  // (1,20,000 + 3,80,000 + 55,000 + 70,000 = 6,25,000) = 10,63,000 → ₹4,37,000 left of ₹15,00,000
+  await expect(row.getByTestId("overview-remaining")).toHaveText("₹4,37,000");
   await expect(page.getByTestId("portfolio-committed")).toContainText("₹");
 });
 

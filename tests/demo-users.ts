@@ -18,3 +18,6 @@ export function demoPassword(): string {
 export const TEST_HR_EMAIL = "e2e-hr@test.relo-os.test";
 export const TEST_ADMIN_EMAIL = "e2e-admin@test.relo-os.test";
 export const TEST_EMPLOYEE_EMAIL = "e2e-employee@test.relo-os.test";
+
+// Every login the browser tests use.
+export const ALL_TEST_LOGINS = [...Object.values(DEMO_USERS), TEST_HR_EMAIL, TEST_ADMIN_EMAIL, TEST_EMPLOYEE_EMAIL];

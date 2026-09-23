@@ -2,7 +2,8 @@
 // screen shows only what spec section 3 allows.
 import { expect, test, type Page } from "@playwright/test";
 
-import { signInAs } from "./helpers";
+import { DEMO_USERS } from "../demo-users";
+import { loginThroughForm, signInAs } from "./helpers";
 
 const DEMO_TRIP = "Bengaluru, India → Dubai, UAE";
 // Demo HR may have created more relocations, so admin/HR checks look at the demo card.
@@ -53,7 +54,8 @@ test("vendor sees no relocations and no money figures", async ({ page }) => {
 });
 
 test("signing out returns to the login page", async ({ page }) => {
-  await signInAs(page, "hr_user");
+  // A real login, so signing out doesn't end the session other tests share.
+  await loginThroughForm(page, DEMO_USERS.hr_user);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/dashboard");
