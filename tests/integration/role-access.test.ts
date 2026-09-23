@@ -46,18 +46,24 @@ suite("role access through the API", () => {
   const clients = {} as Record<Role | "test_hr", SupabaseClient>;
   const rows = {} as Record<Role | "test_hr", Record<Table, Record<string, unknown>[]>>;
 
+  // Signs in as every user and reads every table once, in parallel.
   beforeAll(async () => {
-    for (const [role, email] of [...Object.entries(DEMO_USERS), ["test_hr", TEST_HR_EMAIL]] as const) {
-      const client = await signIn(email);
-      clients[role as Role] = client;
-      rows[role as Role] = {} as Record<Table, Record<string, unknown>[]>;
-      for (const table of TABLES) {
-        const { data, error } = await client.from(table).select("*");
-        if (error) throw new Error(`${role} reading ${table}: ${error.message}`);
-        rows[role as Role][table] = data ?? [];
-      }
-    }
-  });
+    const people = [...Object.entries(DEMO_USERS), ["test_hr", TEST_HR_EMAIL]] as [Role, string][];
+    await Promise.all(
+      people.map(async ([role, email]) => {
+        const client = await signIn(email);
+        clients[role] = client;
+        const entries = await Promise.all(
+          TABLES.map(async (table) => {
+            const { data, error } = await client.from(table).select("*");
+            if (error) throw new Error(`${role} reading ${table}: ${error.message}`);
+            return [table, data ?? []] as const;
+          }),
+        );
+        rows[role] = Object.fromEntries(entries) as Record<Table, Record<string, unknown>[]>;
+      }),
+    );
+  }, 60_000);
 
   it("everyone sees only their own RMC", () => {
     for (const role of Object.keys(DEMO_USERS) as Role[]) {
